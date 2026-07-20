@@ -1,3 +1,16 @@
 spring:
   application:
     name: payment-messages
+
+  datasource:
+    url: jdbc:h2:mem:paymentdb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+server:
+  port: 8080
