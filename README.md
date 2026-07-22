@@ -22,11 +22,39 @@ L'application doit répondre à des contraintes fortes :
 
 ---
 
+# Stack technique
+
+## Backend
+
+- Java 21
+- Spring Boot 4.1.0
+- Spring Data JPA
+- Spring JMS
+- IBM MQ Client 9.4.2.0
+- PostgreSQL
+- Maven
+
+
+## Frontend
+
+- Angular 22
+- TypeScript
+
+
+## Infrastructure
+
+- Docker
+- Docker Compose
+
+---
+
 # Architecture globale
 
 ```text
 
 ```
+
+---
 
 # Structure du projet
 
@@ -45,3 +73,23 @@ payment-messages
 │
 └── README.md
 ```
+
+---
+
+# Fonctionnalités
+
+## Backend
+
+- Consommation IBM MQ
+- Stockage des messages
+- Recherche des messages
+- API REST
+- Pagination
+- Monitoring
+
+
+## Frontend
+
+- Dashboard messages
+- Recherche
+- Consultation détail
