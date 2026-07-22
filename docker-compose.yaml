@@ -11,7 +11,7 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U payment -d payment_messages"]
       interval: 10s
@@ -23,7 +23,7 @@ services:
     container_name: payment-pgadmin
     restart: unless-stopped
     environment:
-      PGADMIN_DEFAULT_EMAIL: admin@payment.local
+      PGADMIN_DEFAULT_EMAIL: admin@payment.com
       PGADMIN_DEFAULT_PASSWORD: admin
     ports:
       - "5050:80"
@@ -33,7 +33,6 @@ services:
 
   ibm-mq:
     image: icr.io/ibm-messaging/mq:latest
-    platform: linux/amd64
     container_name: payment-mq
     restart: unless-stopped
     environment:
