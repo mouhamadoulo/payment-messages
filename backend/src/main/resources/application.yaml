@@ -3,14 +3,24 @@ spring:
     name: payment-messages
 
   datasource:
-    url: jdbc:h2:mem:paymentdb
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: jdbc:postgresql://localhost:5432/payment_messages
+    username: payment
+    password: payment
+    driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: update
+      ddl-auto: validate
+
+ibm:
+  mq:
+    queue-manager: QM1
+    channel: DEV.APP.SVRCONN
+    conn-name: localhost(1414)
+    user: app
+    password: passw0rd
+    receive-timeout: 5000
+
 
 server:
   port: 8080
