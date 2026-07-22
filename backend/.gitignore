@@ -32,9 +32,9 @@ build/
 ### VS Code ###
 .vscode/
 
+# environment variables
+.env
 
 # Local configuration
-
-application-local.yml
-
-application-dev.yml
+application-local.yaml
+application-dev.yaml
