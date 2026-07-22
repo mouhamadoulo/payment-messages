@@ -2,15 +2,18 @@ spring:
   application:
     name: payment-messages
 
+  profiles:
+    active: dev
+
   datasource:
-    url: jdbc:postgresql://localhost:5432/payment_messages?sslmode=disable
-    username: payment
-    password: payment
+    url: ${DB_URL}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
 
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: ${JPA_DDL_AUTO}
 
   jms:
     listener:
@@ -18,14 +21,14 @@ spring:
 
 ibm:
   mq:
-    queue-manager: QM1
-    channel: DEV.APP.SVRCONN
-    conn-name: ibm-mq(1414)
-    user: app
-    password: passw0rd
+    queue-manager: ${MQ_QMGR}
+    channel: ${MQ_CHANNEL}
+    conn-name: ${MQ_CONN_NAME}
+    user: ${MQ_USER}
+    password: ${MQ_PASSWORD}
     receive-timeout: 5000
-    queue: PAYMENT.IN
+    queue: ${MQ_QUEUE}
 
 
 server:
-  port: 8080
+  port: ${SERVER_PORT}
