@@ -34,7 +34,8 @@ ibm:
 ```
 
 Toutes les valeurs sont externalisées via variables d'environnement pour la sécurité.
-### 3.3 Configuration exemple (application-dev.example.yaml)
+
+### 3.2 Configuration exemple (application-dev.example.yaml)
 
 ```yaml
 ibm:
@@ -117,7 +118,7 @@ Points clés :
 
 ## 5. Sécurité
 
-Les informations d'identification (utilisateur, mot de passe) sont externalisées dans des variables d'environnement. Ne jamais commiter les credentials réels.
+Les informations d'identification (utilisateur, mot de passe) sont externalisées dans des variables d'environnement. 
 
 Pour le développement local, utiliser `application-dev.example.yaml` comme référence et créer votre propre `application-dev.yaml`.
 
