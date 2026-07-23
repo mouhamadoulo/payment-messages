@@ -1,6 +1,7 @@
 package com.bank.paymentmessages.service;
 
-import com.bank.paymentmessages.dto.PaymentMessageDto;
+import com.bank.paymentmessages.dto.api.PaymentMessageDto;
+import com.bank.paymentmessages.dto.mq.PaymentMessageEvent;
 import com.bank.paymentmessages.entity.PaymentMessage;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
@@ -22,22 +23,15 @@ public class PaymentMessageService {
         this.repository = repository;
     }
 
-    public PaymentMessage saveMessage(String payload){
-        PaymentMessage message = PaymentMessage.builder()
-                        .messageId(UUID.randomUUID().toString())
-                        .payload(payload)
-                        .status(PaymentMessageStatus.RECEIVED)
-                        .receivedAt(LocalDateTime.now())
-                        .build();
+    public PaymentMessage saveMessage(PaymentMessageEvent event, String rawPayload) {
 
-
+        PaymentMessage message = PaymentMessageMapper.toEntity(event, rawPayload);
         return repository.save(message);
     }
 
     public Page<PaymentMessageDto> findAll(Pageable pageable) {
 
-        return repository.findAll(pageable)
-                .map(PaymentMessageMapper::toDto);
+        return repository.findAll(pageable).map(PaymentMessageMapper::toDto);
     }
 
     public Page<PaymentMessageDto> search(PaymentMessageStatus status, LocalDateTime receivedAfter, Pageable pageable) {

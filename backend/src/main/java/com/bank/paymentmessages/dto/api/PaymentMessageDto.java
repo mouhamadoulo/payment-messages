@@ -1,4 +1,4 @@
-package com.bank.paymentmessages.dto;
+package com.bank.paymentmessages.dto.api;
 
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
