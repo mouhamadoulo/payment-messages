@@ -6,9 +6,10 @@ import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
 import com.bank.paymentmessages.mapper.PaymentMessageMapper;
 import com.bank.paymentmessages.repository.PaymentMessageRepository;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
-import java.util.List;
 import java.util.UUID;
 
 
@@ -33,12 +34,10 @@ public class PaymentMessageService {
         return repository.save(message);
     }
 
-    public List<PaymentMessageDto> findAll() {
+    public Page<PaymentMessageDto> findAll(Pageable pageable) {
 
-        return repository.findAll()
-                .stream()
-                .map(PaymentMessageMapper::toDto)
-                .toList();
+        return repository.findAll(pageable)
+                .map(PaymentMessageMapper::toDto);
     }
 
     public PaymentMessageDto findById(Long id) {

@@ -8,8 +8,11 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.*;
-import java.util.List;
+
 
 
 @RestController
@@ -24,8 +27,15 @@ public class PaymentMessageController {
     }
 
     @GetMapping
-    public List<PaymentMessageDto> findAll() {
-        return service.findAll();
+    @Operation(
+            summary = "Pagine la liste des messages",
+            description = "Retourne une page de messages de paiement selon les critères de pagination (page, taille, tri)"
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Page de messages récupérée avec succès")
+    })
+    public Page<PaymentMessageDto> findAll(@PageableDefault(size = 20) Pageable pageable) {
+        return service.findAll(pageable);
     }
 
     @GetMapping("/{id}")
