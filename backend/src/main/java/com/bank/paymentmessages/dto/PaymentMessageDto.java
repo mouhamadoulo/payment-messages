@@ -1,5 +1,6 @@
 package com.bank.paymentmessages.dto;
 
+import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
@@ -20,13 +21,35 @@ public class PaymentMessageDto {
     @Schema(example = "PAY-20260723-001")
     private String reference;
 
-    @Schema(example = "RECEIVED")
-    private String status;
+    @Schema(example = "PAYMENT_REQUEST")
+    private String messageType;
+
+    @Schema(description = "Statut du traitement",
+            example = "RECEIVED",
+            allowableValues = {
+                    "RECEIVED",
+                    "VALIDATING",
+                    "PROCESSING",
+                    "PROCESSED",
+                    "FAILED",
+                    "RETRY_PENDING",
+                    "REJECTED",
+                    "DEAD_LETTER"
+            })
+    private PaymentMessageStatus status;
 
     @Schema(example = "{\"amount\":100}")
     private String payload;
 
+    @Schema(example = "0")
+    private Integer retryCount;
+
+    @Schema(example = "null")
+    private String errorMessage;
+
     private LocalDateTime receivedAt;
 
     private LocalDateTime processedAt;
+
+    private LocalDateTime updatedAt;
 }

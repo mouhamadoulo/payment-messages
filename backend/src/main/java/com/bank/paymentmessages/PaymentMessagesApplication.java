@@ -21,6 +21,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 public class PaymentMessagesApplication {
 
 	public static void main(String[] args) {
+
 		SpringApplication.run(PaymentMessagesApplication.class, args);
 	}
 
