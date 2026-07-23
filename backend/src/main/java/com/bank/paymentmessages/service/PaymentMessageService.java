@@ -40,6 +40,22 @@ public class PaymentMessageService {
                 .map(PaymentMessageMapper::toDto);
     }
 
+    public Page<PaymentMessageDto> search(PaymentMessageStatus status, LocalDateTime receivedAfter, Pageable pageable) {
+        if (status != null && receivedAfter != null) {
+            return repository.findByStatusAndReceivedAtAfter(status, receivedAfter, pageable)
+                    .map(PaymentMessageMapper::toDto);
+        }
+        if (status != null) {
+            return repository.findByStatus(status, pageable)
+                    .map(PaymentMessageMapper::toDto);
+        }
+        if (receivedAfter != null) {
+            return repository.findByReceivedAtAfter(receivedAfter, pageable)
+                    .map(PaymentMessageMapper::toDto);
+        }
+        return findAll(pageable);
+    }
+
     public PaymentMessageDto findById(Long id) {
 
         return repository.findById(id)
