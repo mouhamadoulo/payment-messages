@@ -34,21 +34,6 @@ ibm:
 ```
 
 Toutes les valeurs sont externalisées via variables d'environnement pour la sécurité.
-
-### 3.2 Configuration Dev (application-dev.yaml)
-
-```yaml
-ibm:
-  mq:
-    queue-manager: QM1
-    channel: REDACTED
-    conn-name: REDACTED(1414)
-    user: app
-    password: REDACTED
-    receive-timeout: 5000
-    queue: DEV.QUEUE.1
-```
-
 ### 3.3 Configuration exemple (application-dev.example.yaml)
 
 ```yaml
