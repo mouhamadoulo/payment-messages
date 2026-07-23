@@ -17,12 +17,17 @@ jobs:
         working-directory: ./backend
     steps:
       - uses: actions/checkout@v4
+      
+      - name: Make Maven Wrapper executable
+        run: chmod +x mvnw
+  
       - name: Set up JDK ${{ env.JAVA_VERSION }}
         uses: actions/setup-java@v4
         with:
           java-version: ${{ env.JAVA_VERSION }}
           distribution: temurin
           cache: maven
+          
       - name: Build & Test with Maven
         run: ./mvnw verify --no-transfer-progress
 
