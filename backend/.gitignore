@@ -35,5 +35,13 @@ build/
 # environment variables
 .env
 
+# IBM MQ JMS logs
+mqjms.log*
+*.log
+
+# Spring Boot logs
+logs/
+*.log
+
 # Local configuration
 **/application-dev.yaml
