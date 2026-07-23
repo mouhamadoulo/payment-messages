@@ -1,6 +1,6 @@
 package com.bank.paymentmessages.mapper;
 
-import com.bank.paymentmessages.dto.PaymentMessageDto;
+import com.bank.paymentmessages.dto.api.PaymentMessageDto;
 import com.bank.paymentmessages.entity.PaymentMessage;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import org.junit.jupiter.api.Test;
