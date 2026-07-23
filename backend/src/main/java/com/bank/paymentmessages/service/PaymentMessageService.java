@@ -2,6 +2,7 @@ package com.bank.paymentmessages.service;
 
 import com.bank.paymentmessages.dto.PaymentMessageDto;
 import com.bank.paymentmessages.entity.PaymentMessage;
+import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import com.bank.paymentmessages.mapper.PaymentMessageMapper;
 import com.bank.paymentmessages.repository.PaymentMessageRepository;
 import org.springframework.stereotype.Service;
@@ -23,7 +24,7 @@ public class PaymentMessageService {
         PaymentMessage message = PaymentMessage.builder()
                         .messageId(UUID.randomUUID().toString())
                         .payload(payload)
-                        .status("RECEIVED")
+                        .status(PaymentMessageStatus.RECEIVED)
                         .receivedAt(LocalDateTime.now())
                         .build();
 
