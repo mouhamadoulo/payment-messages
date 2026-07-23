@@ -1,6 +1,7 @@
 package com.bank.paymentmessages.service;
 
-import com.bank.paymentmessages.dto.PaymentMessageDto;
+import com.bank.paymentmessages.dto.api.PaymentMessageDto;
+import com.bank.paymentmessages.dto.mq.PaymentMessageEvent;
 import com.bank.paymentmessages.entity.PaymentMessage;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import com.bank.paymentmessages.repository.PaymentMessageRepository;
@@ -21,6 +22,10 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.Pageable;
+
 @ExtendWith(MockitoExtension.class)
 class PaymentMessageServiceTest {
 
@@ -35,20 +40,26 @@ class PaymentMessageServiceTest {
 
     @Test
     void shouldSaveMessageWithReceivedStatus() {
-        String payload = "{\"amount\":250}";
+        String rawPayload = "{\"amount\":250}";
+        PaymentMessageEvent event = PaymentMessageEvent.builder()
+                .messageId("event-uuid")
+                .reference("REF-001")
+                .messageType("PAYMENT_REQUEST")
+                .status(PaymentMessageStatus.RECEIVED)
+                .build();
         PaymentMessage savedEntity = PaymentMessage.builder()
                 .id(1L)
-                .messageId("generated-uuid")
-                .payload(payload)
+                .messageId("event-uuid")
+                .payload(rawPayload)
                 .status(PaymentMessageStatus.RECEIVED)
                 .build();
         when(repository.save(any(PaymentMessage.class))).thenReturn(savedEntity);
 
-        PaymentMessage result = service.saveMessage(payload);
+        PaymentMessage result = service.saveMessage(event, rawPayload);
 
         verify(repository).save(messageCaptor.capture());
         PaymentMessage captured = messageCaptor.getValue();
-        assertThat(captured.getPayload()).isEqualTo(payload);
+        assertThat(captured.getPayload()).isEqualTo(rawPayload);
         assertThat(captured.getStatus()).isEqualTo(PaymentMessageStatus.RECEIVED);
         assertThat(captured.getMessageId()).isNotNull();
         assertThat(captured.getReceivedAt()).isNotNull();
@@ -59,13 +70,14 @@ class PaymentMessageServiceTest {
     void shouldReturnAllMessages() {
         PaymentMessage m1 = PaymentMessage.builder().id(1L).messageId("m1").reference("R1").status(PaymentMessageStatus.RECEIVED).build();
         PaymentMessage m2 = PaymentMessage.builder().id(2L).messageId("m2").reference("R2").status(PaymentMessageStatus.PROCESSED).build();
-        when(repository.findAll()).thenReturn(List.of(m1, m2));
+        Page<PaymentMessage> page = new PageImpl<>(List.of(m1, m2));
+        when(repository.findAll(any(Pageable.class))).thenReturn(page);
 
-        List<PaymentMessageDto> dtos = service.findAll();
+        Page<PaymentMessageDto> result = service.findAll(Pageable.unpaged());
 
-        assertThat(dtos).hasSize(2);
-        assertThat(dtos.get(0).getMessageId()).isEqualTo("m1");
-        assertThat(dtos.get(1).getMessageId()).isEqualTo("m2");
+        assertThat(result).hasSize(2);
+        assertThat(result.getContent().get(0).getMessageId()).isEqualTo("m1");
+        assertThat(result.getContent().get(1).getMessageId()).isEqualTo("m2");
     }
 
     @Test
@@ -87,7 +99,7 @@ class PaymentMessageServiceTest {
 
         assertThatThrownBy(() -> service.findById(99L))
                 .isInstanceOf(RuntimeException.class)
-                .hasMessageContaining("Message introuvable");
+                .hasMessageContaining("introuvable");
     }
 
     @Test
