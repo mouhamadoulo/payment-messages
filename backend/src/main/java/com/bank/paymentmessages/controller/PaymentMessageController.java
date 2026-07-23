@@ -1,6 +1,6 @@
 package com.bank.paymentmessages.controller;
 
-import com.bank.paymentmessages.dto.PaymentMessageDto;
+import com.bank.paymentmessages.dto.api.PaymentMessageDto;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import com.bank.paymentmessages.service.PaymentMessageService;
 import io.swagger.v3.oas.annotations.Operation;
