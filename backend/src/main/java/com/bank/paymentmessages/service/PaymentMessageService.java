@@ -3,6 +3,7 @@ package com.bank.paymentmessages.service;
 import com.bank.paymentmessages.dto.PaymentMessageDto;
 import com.bank.paymentmessages.entity.PaymentMessage;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
+import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
 import com.bank.paymentmessages.mapper.PaymentMessageMapper;
 import com.bank.paymentmessages.repository.PaymentMessageRepository;
 import org.springframework.stereotype.Service;
@@ -45,7 +46,7 @@ public class PaymentMessageService {
         return repository.findById(id)
                 .map(PaymentMessageMapper::toDto)
                 .orElseThrow(() ->
-                        new RuntimeException("Message introuvable"));
+                        new PaymentMessageNotFoundException(id));
     }
 
 }
