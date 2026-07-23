@@ -36,6 +36,4 @@ build/
 .env
 
 # Local configuration
-**/application-local.yaml
 **/application-dev.yaml
-**/application-*.yaml
