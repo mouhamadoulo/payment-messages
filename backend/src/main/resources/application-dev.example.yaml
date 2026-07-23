@@ -1,0 +1,31 @@
+spring:
+  application:
+    name: payment-messages
+
+  datasource:
+    url: jdbc:postgresql://localhost:5432/payment_messages
+    username: payment
+    password: payment
+    driver-class-name: org.postgresql.Driver
+
+  jpa:
+    hibernate:
+      ddl-auto: update
+
+  jms:
+    listener:
+      acknowledge-mode: auto
+
+ibm:
+  mq:
+    queue-manager: QM1
+    channel: DEV.APP.SVRCONN
+    conn-name: localhost(1414)
+    user: app
+    password: passw0rd
+    receive-timeout: 5000
+    queue: PAYMENT.REQUEST.QUEUE
+
+
+server:
+  port: 8080

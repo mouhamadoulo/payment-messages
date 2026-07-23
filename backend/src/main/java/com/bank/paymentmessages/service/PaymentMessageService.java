@@ -1,6 +1,8 @@
 package com.bank.paymentmessages.service;
 
+import com.bank.paymentmessages.dto.PaymentMessageDto;
 import com.bank.paymentmessages.entity.PaymentMessage;
+import com.bank.paymentmessages.mapper.PaymentMessageMapper;
 import com.bank.paymentmessages.repository.PaymentMessageRepository;
 import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
@@ -29,14 +31,20 @@ public class PaymentMessageService {
         return repository.save(message);
     }
 
-    public List<PaymentMessage> findAll(){
-        return repository.findAll();
+    public List<PaymentMessageDto> findAll() {
+
+        return repository.findAll()
+                .stream()
+                .map(PaymentMessageMapper::toDto)
+                .toList();
     }
 
-    public PaymentMessage findById(Long id){
+    public PaymentMessageDto findById(Long id) {
+
         return repository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Message introuvable")
-                );
+                .map(PaymentMessageMapper::toDto)
+                .orElseThrow(() ->
+                        new RuntimeException("Message introuvable"));
     }
 
 }
