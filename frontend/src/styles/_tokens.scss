@@ -1,0 +1,29 @@
+:root {
+  --bg: #F4F5F7;
+  --surface: #FFFFFF;
+  --border: #ECEDF0;
+  --text: #1A1D1F;
+  --muted: #6F767E;
+  --primary: #2F6BFF;
+  --primary-soft: #EAF1FF;
+  --success: #22C55E;
+  --danger: #EF4444;
+  --warning: #F97316;
+
+  --radius-card: 18px;
+  --radius-pill: 10px;
+  --shadow-card: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 24px; --space-6: 32px;
+
+  /* per-status accent — MUST match status.config.ts colors (Task 2) */
+  --st-received: #2F6BFF;
+  --st-validating: #F59E0B;
+  --st-processing: #6366F1;
+  --st-processed: #22C55E;
+  --st-failed: #EF4444;
+  --st-retry_pending: #F97316;
+  --st-rejected: #6B7280;
+  --st-dead_letter: #9333EA;
+}
