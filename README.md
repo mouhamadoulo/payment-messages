@@ -181,6 +181,16 @@ Variables d'environnement requises (ou définies dans `application-dev.yaml`) :
 | `MQ_DLQ_QUEUE` | `PAYMENT.DLQ.QUEUE` |
 | `MQ_MAX_RETRIES` | `3` |
 
+Variables optionnelles (valeurs par défaut entre parenthèses) :
+
+| Variable | Description |
+|---|---|
+| `MQ_MIN_CONCURRENCY` / `MQ_MAX_CONCURRENCY` | Nombre de consommateurs JMS (`5` / `10`) |
+| `DB_POOL_MAX_SIZE` / `DB_POOL_MIN_IDLE` | Dimensionnement HikariCP (`20` / `5`), à tenir ≥ `MQ_MAX_CONCURRENCY` + threads HTTP |
+| `MQ_DLQ_RECOVERY_ENABLED` | Reprise planifiée des `DEAD_LETTER` non republiés (`true`) |
+| `MQ_DLQ_RECOVERY_INTERVAL` | Période de la reprise en ms (`60000`) |
+| `MQ_DLQ_RECOVERY_BATCH_SIZE` | Taille de lot de la reprise (`100`) |
+
 ### IBM MQ
 
 Documentation détaillée : [docs/ibm-mq/ibm-mq-configuration.md](docs/ibm-mq/ibm-mq-configuration.md)

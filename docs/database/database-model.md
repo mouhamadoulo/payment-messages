@@ -15,6 +15,7 @@ erDiagram
         text error_message "Détail de l'erreur"
         timestamp received_at "Date réception MQ"
         timestamp updated_at "Date mise à jour"
+        timestamp dlq_published_at "Date de republication confirmée sur la DLQ"
     }
 ```
 
@@ -34,6 +35,7 @@ erDiagram
 | `error_message` | `TEXT` | nullable | Message d'erreur détaillé |
 | `received_at` | `TIMESTAMP` | nullable | Date et heure de réception depuis MQ |
 | `updated_at` | `TIMESTAMP` | nullable | Date et heure de dernière mise à jour |
+| `dlq_published_at` | `TIMESTAMP` | nullable | Republication confirmée sur la DLQ ; `NULL` sur un `DEAD_LETTER` signale une divergence base / broker, reprise par `DeadLetterRecoveryJob` |
 
 ### 2.2 Index
 

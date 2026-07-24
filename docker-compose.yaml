@@ -64,10 +64,12 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
       SERVER_PORT: 8080
-      DB_URL: jdbc:postgresql://postgres:5432/payment_messages
+      DB_URL: jdbc:postgresql://postgres:5432/payment_messages?reWriteBatchedInserts=true
       DB_USER: payment
       DB_PASSWORD: payment
       JPA_DDL_AUTO: update
+      DB_POOL_MAX_SIZE: 20
+      DB_POOL_MIN_IDLE: 5
       MQ_QMGR: QM1
       MQ_CHANNEL: DEV.APP.SVRCONN
       MQ_CONN_NAME: ibm-mq(1414)
@@ -76,6 +78,8 @@ services:
       MQ_QUEUE: PAYMENT.REQUEST.QUEUE
       MQ_DLQ_QUEUE: PAYMENT.DLQ.QUEUE
       MQ_MAX_RETRIES: 3
+      MQ_MIN_CONCURRENCY: 5
+      MQ_MAX_CONCURRENCY: 10
     ports:
       - "8080:8080"
     depends_on:

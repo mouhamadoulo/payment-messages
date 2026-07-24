@@ -48,4 +48,11 @@ public class PaymentMessage {
 
     private LocalDateTime updatedAt;
 
+    /**
+     * Horodatage de la republication effective sur la Dead Letter Queue.
+     * Reste {@code null} tant que le broker n'a pas accusé réception : c'est ce
+     * marqueur qui permet de détecter les divergences base / DLQ et de les rattraper.
+     */
+    private LocalDateTime dlqPublishedAt;
+
 }

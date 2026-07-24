@@ -121,7 +121,9 @@ Méthodes dérivées :
 | Méthode | Requête générée |
 |---|---|
 | `findByMessageId(String)` | `WHERE message_id = ?` |
+| `existsByMessageId(String)` | `SELECT COUNT(*) … WHERE message_id = ?` (idempotence de l'ingestion) |
 | `findByReference(String)` | `WHERE reference = ?` |
+| `findByStatusAndDlqPublishedAtIsNull(...)` | `WHERE status = ? AND dlq_published_at IS NULL` (reprise DLQ) |
 | `findByStatus(PaymentMessageStatus, Pageable)` | `WHERE status = ?` avec pagination |
 | `findByReceivedAtAfter(LocalDateTime, Pageable)` | `WHERE received_at > ?` avec pagination |
 | `findByStatusAndReceivedAtAfter(...)` | `WHERE status = ? AND received_at > ?` avec pagination |
@@ -131,18 +133,25 @@ Méthodes dérivées :
 ### 5.4 JMS Listener (`PaymentMessageListener`)
 
 - Écoute la file configurée via `${ibm.mq.queue}`
-- Concurrence : `5-10` threads
-- Mode d'acquittement : `auto`
-- Désérialise le payload JSON en `PaymentMessageEvent`
+- Concurrence : `spring.jms.listener.min/max-concurrency` (5-10 par défaut, pilotable par environnement)
+- Mode d'acquittement : session **transactée** — un rollback provoque une redélivrance
+- Désérialise le payload JSON en `PaymentMessageEvent` (`JsonMapper` Jackson 3 auto-configuré)
 - Valide avec Jakarta Validation
-- Persiste via `PaymentMessageService.saveMessage()`
+- Persiste via `PaymentMessageService.saveMessage()`, idempotent sur `messageId`
+- **Erreurs définitives** (JSON illisible, validation en échec) : ligne `FAILED` avec le payload
+  brut et le motif, puis acquittement — le message reste rejouable
+- **Erreurs transitoires** (base indisponible) : exception relancée → rollback → redélivrance,
+  bornée côté queue manager par `BOTHRESH` / `BOQNAME`
+- Les rollbacks sont tracés et comptés par l'`ErrorHandler` de `config/JmsConfig`
 
 ### 5.5 Mapper (`PaymentMessageMapper`)
 
-Classe utilitaire (constructeur privé) avec deux méthodes statiques :
+Classe utilitaire (constructeur privé) avec trois méthodes statiques :
 
 - `toDto(PaymentMessage)` → `PaymentMessageDto`
 - `toEntity(PaymentMessageEvent, String rawPayload)` → `PaymentMessage`
+- `toFailedEntity(messageId, reference, messageType, rawPayload, errorMessage)` → `PaymentMessage`
+  en statut `FAILED` (rejet définitif d'un message entrant)
 
 ### 5.6 Exception Handler (`GlobalExceptionHandler`)
 
@@ -189,6 +198,16 @@ Toutes les réponses d'erreur suivent le format :
 | `MQ_DLQ_QUEUE` | Dead Letter Queue applicative |
 | `MQ_MAX_RETRIES` | Nombre de rejeux avant `DEAD_LETTER` |
 | `SERVER_PORT` | Port du serveur |
+
+Variables optionnelles :
+
+| Variable | Défaut | Description |
+|---|---|---|
+| `MQ_MIN_CONCURRENCY` / `MQ_MAX_CONCURRENCY` | `5` / `10` | Consommateurs JMS |
+| `DB_POOL_MAX_SIZE` / `DB_POOL_MIN_IDLE` | `20` / `5` | HikariCP, à tenir ≥ `MQ_MAX_CONCURRENCY` + threads HTTP |
+| `MQ_DLQ_RECOVERY_ENABLED` | `true` | Reprise planifiée des `DEAD_LETTER` non republiés |
+| `MQ_DLQ_RECOVERY_INTERVAL` | `60000` | Période de la reprise (ms) |
+| `MQ_DLQ_RECOVERY_BATCH_SIZE` | `100` | Taille de lot de la reprise |
 
 ### 6.3 Actuator
 

@@ -3,7 +3,7 @@ spring:
     name: payment-messages
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/payment_messages
+    url: jdbc:postgresql://localhost:5432/payment_messages?reWriteBatchedInserts=true
     username: payment
     password: payment
     driver-class-name: org.postgresql.Driver
@@ -14,7 +14,11 @@ spring:
 
   jms:
     listener:
-      acknowledge-mode: auto
+      session:
+        transacted: true          # explicite : rollback = redélivrance
+      min-concurrency: 5
+      max-concurrency: 10
+      receive-timeout: 5s
 
 ibm:
   mq:

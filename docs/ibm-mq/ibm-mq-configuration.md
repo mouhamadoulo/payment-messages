@@ -33,6 +33,10 @@ ibm:
     queue: ${MQ_QUEUE}
     dlq-queue: ${MQ_DLQ_QUEUE}
     max-retries: ${MQ_MAX_RETRIES}
+    dlq-recovery:
+      enabled: ${MQ_DLQ_RECOVERY_ENABLED:true}
+      interval: ${MQ_DLQ_RECOVERY_INTERVAL:60000}
+      batch-size: ${MQ_DLQ_RECOVERY_BATCH_SIZE:100}
 ```
 
 Toutes les valeurs sont externalisées via variables d'environnement pour la sécurité.
@@ -40,7 +44,14 @@ Toutes les valeurs sont externalisées via variables d'environnement pour la sé
 `dlq-queue` est la Dead Letter Queue applicative : quand un message dépasse `max-retries` rejeux,
 `mq/DeadLetterPublisher` y republie le payload brut (avec les propriétés JMS `originalMessageId`,
 `reference`, `retryCount`, `errorMessage`) et le statut passe à `DEAD_LETTER`.
-Les deux files sont créées au démarrage du conteneur MQ par `infra/mq/payment-queues.mqsc`.
+La publication n'est confirmée en base (`dlqPublishedAt`) que si le broker l'accepte ; sinon
+`mq/DeadLetterRecoveryJob` (`dlq-recovery.*`) republie périodiquement les lignes non confirmées,
+ce qui évite qu'un message soit marqué abandonné en base sans exister côté MQ.
+
+`PAYMENT.REQUEST.QUEUE` déclare `BOTHRESH(5)` et `BOQNAME('PAYMENT.BACKOUT.QUEUE')` : au-delà de
+5 redélivrances, le queue manager écarte le message vers la file de backout au lieu de le laisser
+boucler indéfiniment sur les consommateurs.
+Les trois files sont créées au démarrage du conteneur MQ par `infra/mq/payment-queues.mqsc`.
 
 ### 3.2 Configuration exemple (application-dev.example.yaml)
 
@@ -66,8 +77,16 @@ ibm:
 spring:
   jms:
     listener:
-      acknowledge-mode: auto
+      session:
+        transacted: true          # explicite : rollback = redélivrance
+      min-concurrency: ${MQ_MIN_CONCURRENCY:5}
+      max-concurrency: ${MQ_MAX_CONCURRENCY:10}
+      receive-timeout: 5s
 ```
+
+> `spring.jms.listener.acknowledge-mode` (utilisée jusqu'ici) n'est plus liée en
+> Spring Boot 4 : elle était ignorée silencieusement. Le mode réel est la session
+> transactée, désormais déclarée explicitement.
 
 ### 4.2 Listener
 
@@ -75,23 +94,30 @@ spring:
 @Component
 public class PaymentMessageListener {
 
-    @JmsListener(destination = "${ibm.mq.queue}", concurrency = "5-10")
+    @JmsListener(destination = "${ibm.mq.queue}")
     public void receive(String payload) {
-        // 1. Log de réception
-        // 2. Désérialisation JSON → PaymentMessageEvent
-        // 3. Validation (Jakarta Validation)
-        // 4. Si valide → service.saveMessage(event, rawPayload)
-        // 5. Si invalide → log erreur (message acquitté)
+        // 1. Désérialisation JSON → PaymentMessageEvent
+        //    → illisible : persistance en FAILED avec le payload brut, puis acquittement
+        // 2. Validation (Jakarta Validation)
+        //    → en échec : persistance en FAILED avec le motif, puis acquittement
+        // 3. service.saveMessage(event, rawPayload) — idempotent sur messageId
+        //    → erreur transitoire : exception relancée, rollback, redélivrance
     }
 }
 ```
 
 Points clés :
 
-- **Concurrence** : 5 à 10 threads en parallèle
-- **Acquittement** : auto (message acquitté dès la réception)
-- **Désérialisation** : Jackson ObjectMapper avec JavaTimeModule
+- **Concurrence** : pilotée par `spring.jms.listener.min/max-concurrency` (5 à 10 par défaut)
+- **Acquittement** : session transactée — un rollback provoque une redélivrance
+- **Erreurs définitives** (JSON illisible, validation) : persistées en `FAILED` avec le
+  payload brut et rejouables depuis l'API — aucun message n'est perdu
+- **Erreurs transitoires** (base indisponible) : redélivrance, bornée par `BOTHRESH`/`BOQNAME`
+- **Désérialisation** : `JsonMapper` (Jackson 3) auto-configuré par Spring Boot, avec
+  `FAIL_ON_UNKNOWN_PROPERTIES` désactivé (tolérance aux champs ajoutés en amont)
 - **Validation** : Jakarta Bean Validation (`@NotBlank`, `@NotNull`, `@Positive`)
+- **Métriques** : `payment.mq.messages.rejected`, `payment.mq.messages.duplicates`,
+  `payment.mq.listener.rollbacks`, `payment.dlq.publish.failures`
 
 ### 4.3 Format attendu du message MQ
 

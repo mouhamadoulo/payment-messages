@@ -10,7 +10,11 @@ spring:
     database-platform: org.hibernate.dialect.H2Dialect
   jms:
     listener:
-      acknowledge-mode: auto
+      session:
+        transacted: true
+      min-concurrency: 2
+      max-concurrency: 4
+      auto-startup: false
 
 ibm:
   mq:
@@ -23,6 +27,8 @@ ibm:
     queue: TEST.QUEUE
     dlq-queue: TEST.DLQ.QUEUE
     max-retries: 3
+    dlq-recovery:
+      enabled: false
 
 server:
   port: 0

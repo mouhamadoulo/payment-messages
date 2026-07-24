@@ -41,4 +41,26 @@ public final class PaymentMessageMapper {
                 .updatedAt(LocalDateTime.now())
                 .build();
     }
+
+    /**
+     * Entité représentant un message rejeté définitivement (payload illisible ou
+     * validation en échec) : le payload brut est conservé pour permettre le rejeu.
+     */
+    public static PaymentMessage toFailedEntity(String messageId, String reference, String messageType,
+                                                String rawPayload, String errorMessage) {
+
+        LocalDateTime now = LocalDateTime.now();
+
+        return PaymentMessage.builder()
+                .messageId(messageId)
+                .reference(reference)
+                .messageType(messageType)
+                .status(PaymentMessageStatus.FAILED)
+                .payload(rawPayload)
+                .errorMessage(errorMessage)
+                .retryCount(0)
+                .receivedAt(now)
+                .updatedAt(now)
+                .build();
+    }
 }

@@ -15,6 +15,8 @@ public interface PaymentMessageRepository  extends JpaRepository<PaymentMessage,
 
     Optional<PaymentMessage> findByMessageId(String messageId);
 
+    boolean existsByMessageId(String messageId);
+
     Optional<PaymentMessage> findByReference(String reference);
 
     Page<PaymentMessage> findByStatus(PaymentMessageStatus status, Pageable pageable);
@@ -24,6 +26,12 @@ public interface PaymentMessageRepository  extends JpaRepository<PaymentMessage,
     Page<PaymentMessage> findByStatusAndReceivedAtAfter(PaymentMessageStatus status, LocalDateTime receivedAfter, Pageable pageable);
 
     List<PaymentMessage> findAllByStatus(PaymentMessageStatus status);
+
+    /**
+     * Messages passés en DEAD_LETTER dont la republication sur la DLQ n'a jamais été
+     * confirmée. Alimente la reprise planifiée qui rattrape les divergences base / broker.
+     */
+    List<PaymentMessage> findByStatusAndDlqPublishedAtIsNull(PaymentMessageStatus status, Pageable pageable);
 
     @Query("SELECT p.status, COUNT(p) FROM PaymentMessage p GROUP BY p.status")
     List<Object[]> countByStatus();

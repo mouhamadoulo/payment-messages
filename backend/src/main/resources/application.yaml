@@ -10,14 +10,31 @@ spring:
     username: ${DB_USER}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # Doit couvrir la concurrence JMS max + les threads HTTP touchant la base,
+      # sans dépasser max_connections côté PostgreSQL.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: 3000
+      leak-detection-threshold: 20000
 
   jpa:
     hibernate:
       ddl-auto: ${JPA_DDL_AUTO}
+    properties:
+      hibernate:
+        order_inserts: true
+        order_updates: true
+        jdbc:
+          batch_size: 50
 
   jms:
     listener:
-      acknowledge-mode: auto
+      session:
+        transacted: true          # explicite : rollback = redélivrance
+      min-concurrency: ${MQ_MIN_CONCURRENCY:5}
+      max-concurrency: ${MQ_MAX_CONCURRENCY:10}
+      receive-timeout: 5s
 
 ibm:
   mq:
@@ -30,6 +47,10 @@ ibm:
     queue: ${MQ_QUEUE}
     dlq-queue: ${MQ_DLQ_QUEUE}
     max-retries: ${MQ_MAX_RETRIES}
+    dlq-recovery:
+      enabled: ${MQ_DLQ_RECOVERY_ENABLED:true}
+      interval: ${MQ_DLQ_RECOVERY_INTERVAL:60000}
+      batch-size: ${MQ_DLQ_RECOVERY_BATCH_SIZE:100}
 
 
 server:
