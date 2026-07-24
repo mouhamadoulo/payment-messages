@@ -22,3 +22,11 @@ export interface MessageFilters {
   status?: PaymentMessageStatus;
   receivedAfter?: string;
 }
+
+/** Configuration MQ non sensible exposée par le backend (GET /config). */
+export interface MqConfig {
+  queue: string;
+  dlqQueue: string;
+  queueManager: string;
+  channel: string;
+}

@@ -3,6 +3,7 @@ import { RouterLink } from '@angular/router';
 import { MessageService } from '../../services/message.service';
 import { PaymentMessage, PaymentMessageStatus } from '../../models/message.model';
 import { STATUS_ORDER, statusMeta } from '../../../../shared/config/status.config';
+import { AutoAnimateDirective } from '../../../../shared/ui/auto-animate.directive';
 import { KpiCardComponent } from '../../../../shared/ui/kpi-card/kpi-card.component';
 import { hourHistogram } from '../../../../shared/ui/histogram/hour-histogram';
 import { relativeTime } from '../../../../shared/util/payload.util';
@@ -12,9 +13,26 @@ const SAMPLE_SIZE = 200;
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [RouterLink, KpiCardComponent],
+  imports: [RouterLink, AutoAnimateDirective, KpiCardComponent],
   template: `
     <div class="page">
+      @if (firstLoad()) {
+        <section class="kpis">
+          @for (k of skKpis; track $index) {
+            <div class="card sk-kpi">
+              <span class="skeleton" style="height:9px;width:58%"></span>
+              <span class="skeleton" style="height:22px;width:42%"></span>
+              <span class="skeleton" style="height:9px;width:72%"></span>
+            </div>
+          }
+        </section>
+        <section class="grid main">
+          <div class="card sk-kpi"><span class="skeleton" style="height:12px;width:40%"></span>
+               <span class="skeleton" style="height:150px;width:100%"></span></div>
+          <div class="card sk-kpi"><span class="skeleton" style="height:12px;width:40%"></span>
+               <span class="skeleton" style="height:150px;width:100%"></span></div>
+        </section>
+      } @else {
       <section class="kpis">
         <app-kpi-card label="Volume 24 h" [value]="volume24h()" unit="msgs"
                       note="consommés" hint="depuis IBM MQ" noteColor="var(--primary)" />
@@ -88,7 +106,7 @@ const SAMPLE_SIZE = 200;
             <span class="meta">{{ sampleSize() }} derniers messages</span>
           </div>
           @if (typeDist().length) {
-            <div class="rows">
+            <div class="rows" appAutoAnimate>
               @for (t of typeDist(); track t.label) {
                 <div class="row">
                   <span class="row-label mono">{{ t.label }}</span>
@@ -127,7 +145,7 @@ const SAMPLE_SIZE = 200;
           <a routerLink="/messages" class="link">Voir tous les messages →</a>
         </div>
         @if (alerts().length) {
-          <div class="alerts">
+          <div class="alerts" appAutoAnimate>
             @for (a of alerts(); track a.id) {
               <a class="alert" [routerLink]="['/messages', a.id]"
                  [style.background]="a.bg" [style.border-color]="a.border">
@@ -141,11 +159,22 @@ const SAMPLE_SIZE = 200;
           <p class="empty">Aucun message en échec sur les {{ sampleSize() }} derniers reçus</p>
         }
       </section>
+      }
     </div>
   `,
   styles: [`
     .page { display: flex; flex-direction: column; gap: 18px; }
     @media (prefers-reduced-motion: no-preference) { .page { animation: mq-up .3s ease; } }
+    .sk-kpi { display: flex; flex-direction: column; gap: 11px; }
+
+    @media (prefers-reduced-motion: no-preference) {
+      .bar { animation: grow-up .5s cubic-bezier(.22,.61,.36,1) both; transform-origin: bottom; }
+      .fill { animation: grow-right .6s cubic-bezier(.22,.61,.36,1) both; transform-origin: left; }
+      .donut { animation: donut-pop .55s cubic-bezier(.22,.61,.36,1) both; }
+    }
+    @keyframes grow-up { from { transform: scaleY(0); } }
+    @keyframes grow-right { from { transform: scaleX(0); } }
+    @keyframes donut-pop { from { transform: scale(.85); opacity: 0; } }
 
     .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
     .grid { display: grid; gap: 18px; }
@@ -235,6 +264,10 @@ export class DashboardPage implements OnInit {
     this.svc.loadActivitySample(SAMPLE_SIZE);
     this.svc.loadVolume24h();
   }
+
+  protected readonly skKpis = Array(5);
+  protected readonly firstLoad = computed(() =>
+    this.svc.statsLoading() && Object.keys(this.svc.stats() ?? {}).length === 0);
 
   private readonly statsMap = computed(() => (this.svc.stats() as Record<string, number>) ?? {});
   protected readonly total = computed(() => this.svc.total());

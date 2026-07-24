@@ -10,7 +10,7 @@ export const routes: Routes = [
     path: 'dashboard',
     data: {
       title: 'Tableau de bord',
-      subtitle: 'Supervision du routage des messages de paiement'
+      subtitle: 'Supervision des messages'
     },
     loadComponent: () =>
       import('./features/messages/pages/dashboard/dashboard.page').then((m) => m.DashboardPage)

@@ -3,6 +3,7 @@ import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { PaymentMessage } from '../../models/message.model';
 import { Page } from '../../models/page.model';
+import { AutoAnimateDirective } from '../../../../shared/ui/auto-animate.directive';
 import { StatusBadgeComponent } from '../../../../shared/components/status-badge/status-badge.component';
 import { IconComponent } from '../../../../shared/ui/icon/icon.component';
 import { formatBytes, payloadSize } from '../../../../shared/util/payload.util';
@@ -24,7 +25,7 @@ const COLUMNS: Column[] = [
 @Component({
   selector: 'app-message-table',
   standalone: true,
-  imports: [DatePipe, FormsModule, StatusBadgeComponent, IconComponent],
+  imports: [DatePipe, FormsModule, AutoAnimateDirective, StatusBadgeComponent, IconComponent],
   template: `
     <div class="card">
       <div class="scroll">
@@ -42,9 +43,10 @@ const COLUMNS: Column[] = [
               <th class="right"></th>
             </tr>
           </thead>
-          <tbody>
+          <tbody appAutoAnimate>
             @for (m of messages(); track m.id) {
-              <tr [class.selected]="m.id === selectedId()" (click)="select.emit(m)">
+              <tr [class.selected]="m.id === selectedId()" [class.flash]="m.id === flashId()"
+                  (click)="select.emit(m)">
                 <td class="mono link-like">{{ m.reference }}</td>
                 <td class="mono muted ellipsis">{{ m.messageId }}</td>
                 <td class="mono">{{ m.messageType }}</td>
@@ -62,6 +64,32 @@ const COLUMNS: Column[] = [
             }
           </tbody>
         </table>
+      </div>
+
+      <div class="cards" appAutoAnimate>
+        @for (m of messages(); track m.id) {
+          <button class="mcard" [class.selected]="m.id === selectedId()"
+                  [class.flash]="m.id === flashId()" (click)="select.emit(m)">
+            <div class="mcard-top">
+              <span class="mono ref">{{ m.reference }}</span>
+              <app-status-badge [status]="m.status" />
+            </div>
+            <div class="mcard-meta">
+              <span class="mono">{{ m.messageType }}</span>
+              <span class="dotsep">·</span>
+              <span class="mono muted">{{ size(m) }}</span>
+              @if (m.retryCount > 0) {
+                <span class="dotsep">·</span>
+                <span class="mono warn">{{ m.retryCount }} tent.</span>
+              }
+            </div>
+            <div class="mcard-foot">
+              <span class="mono faint">{{ m.receivedAt | date:'dd/MM · HH:mm:ss' }}</span>
+              <a class="open" [href]="'/messages/' + m.id"
+                 (click)="$event.preventDefault(); $event.stopPropagation(); open.emit(m)">Détail</a>
+            </div>
+          </button>
+        }
       </div>
 
       <div class="footer">
@@ -104,6 +132,10 @@ const COLUMNS: Column[] = [
     tbody tr { cursor: pointer; }
     tbody tr:hover { background: var(--row-hover); }
     tbody tr.selected { background: var(--primary-soft); }
+    @media (prefers-reduced-motion: no-preference) {
+      tbody tr.flash td, .mcard.flash { animation: row-flash 1.2s ease-out; }
+    }
+    @keyframes row-flash { 0%, 30% { background: var(--primary-soft); } 100% { background: transparent; } }
     .mono { font-family: var(--font-mono); }
     .muted { color: var(--muted); }
     .faint { color: var(--faint); font-size: .72rem; margin-left: 6px; }
@@ -119,6 +151,27 @@ const COLUMNS: Column[] = [
     td.right:last-child { background: var(--surface); }
     tbody tr:hover td.right:last-child { background: var(--row-hover); }
     tbody tr.selected td.right:last-child { background: var(--primary-soft); }
+
+    /* --- vue cartes (mobile) --- */
+    .cards { display: none; flex-direction: column; }
+    .mcard { display: flex; flex-direction: column; gap: 9px; text-align: left; width: 100%;
+             padding: 14px 16px; border: 0; border-bottom: 1px solid var(--border-soft);
+             background: var(--surface); color: var(--text-2); cursor: pointer; font: inherit; }
+    .mcard:last-child { border-bottom: 0; }
+    .mcard.selected { background: var(--primary-soft); }
+    .mcard-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .mcard-top .ref { color: var(--primary); font-weight: 600; font-size: .86rem; }
+    .mcard-meta { display: flex; align-items: center; gap: 8px; font-size: .78rem; color: var(--text-2); }
+    .mcard-meta .dotsep { color: var(--faint); }
+    .mcard-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .mcard-foot .faint { color: var(--faint); font-size: .74rem; }
+    .mcard-foot .open { font-size: .8rem; font-weight: 600; padding: 8px 14px; border-radius: var(--radius-ctl);
+             background: var(--primary-soft); color: var(--primary); }
+
+    @media (max-width: 700px) {
+      .scroll { display: none; }
+      .cards { display: flex; }
+    }
 
     .footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
               padding: 13px 18px; border-top: 1px solid var(--border-soft); background: var(--surface-head);
@@ -141,6 +194,8 @@ export class MessageTableComponent {
   /** tri courant, format Spring `propriété,direction` */
   readonly sort = input<string>('receivedAt,desc');
   readonly selectedId = input<number | null>(null);
+  /** id d'un message dont le statut vient de changer (flash visuel) */
+  readonly flashId = input<number | null>(null);
 
   readonly sortChange = output<string>();
   readonly pageChange = output<TablePageEvent>();

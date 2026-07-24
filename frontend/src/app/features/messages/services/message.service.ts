@@ -1,6 +1,6 @@
 import { Injectable, signal, inject, computed, WritableSignal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { PaymentMessage, PaymentMessageStatus, MessageFilters } from '../models/message.model';
+import { PaymentMessage, PaymentMessageStatus, MessageFilters, MqConfig } from '../models/message.model';
 import { Page } from '../models/page.model';
 import { API_CONFIG } from '../../../core/config/api.config';
 import { NotificationService } from '../../../core/services/notification.service';
@@ -19,16 +19,28 @@ export class MessageService {
   readonly currentMessage = signal<PaymentMessage | null>(null);
   /** chargement de la liste paginée */
   readonly loading = signal(false);
+  /** chargement des statistiques (dashboard) */
+  readonly statsLoading = signal(false);
   /** chargement d'un message unitaire (drawer / page détail) */
   readonly detailLoading = signal(false);
   readonly error = signal<string | null>(null);
   readonly currentPage = signal<Page<PaymentMessage> | null>(null);
   readonly activitySample = signal<PaymentMessage[]>([]);
+  /** configuration MQ (noms de files, gestionnaire, canal) — sans secret */
+  readonly mqConfig = signal<MqConfig | null>(null);
   readonly searchTerm = signal('');
   /** nombre de messages reçus sur les dernières 24 h (totalElements de /messages?receivedAfter=…) */
   readonly volume24h = signal<number | null>(null);
   /** horodatage du dernier chargement réussi, affiché dans le bandeau */
   readonly lastUpdated = signal<Date | null>(null);
+  /** id du message dont le statut vient de changer — déclenche un flash visuel */
+  readonly changedId = signal<number | null>(null);
+
+  /** signale un changement pour animer la ligne/carte concernée, puis se réinitialise */
+  private flash(id: number) {
+    this.changedId.set(id);
+    setTimeout(() => { if (this.changedId() === id) this.changedId.set(null); }, 1300);
+  }
 
   readonly total = computed(() =>
     Object.values(this.stats() ?? {}).reduce((a, b) => a + (b ?? 0), 0));
@@ -77,14 +89,26 @@ export class MessageService {
       });
   }
 
+  /** charge une fois la config MQ non sensible (best-effort). */
+  loadConfig() {
+    if (this.mqConfig()) return;
+    this.http.get<MqConfig>(API_CONFIG.config)
+      .subscribe({ next: (res) => this.mqConfig.set(res), error: () => { /* best-effort */ } });
+  }
+
   loadStats() {
+    this.statsLoading.set(true);
     this.http.get<Record<PaymentMessageStatus, number>>(API_CONFIG.stats)
       .subscribe({
         next: (res) => {
           this.stats.set(res);
           this.lastUpdated.set(new Date());
+          this.statsLoading.set(false);
         },
-        error: () => this.notification.error('Erreur lors du chargement des statistiques')
+        error: () => {
+          this.statsLoading.set(false);
+          this.notification.error('Erreur lors du chargement des statistiques');
+        }
       });
   }
 
@@ -145,6 +169,7 @@ export class MessageService {
         next: (res) => {
           this.currentMessage.set(res);
           this.patchLocal(res);
+          this.flash(res.id);
           this.loadStats();
           this.notification.success('Message relancé');
         },
@@ -170,6 +195,7 @@ export class MessageService {
       next: (res) => {
         this.currentMessage.set(res);
         this.patchLocal(res);
+        this.flash(res.id);
         this.loadStats();
         this.notification.success('Statut mis à jour');
       },

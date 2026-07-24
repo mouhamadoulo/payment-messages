@@ -22,13 +22,23 @@ import { payloadSize } from '../../../../shared/util/payload.util';
         (exportCsv)="exportCsv()" />
 
       @if (svc.loading()) {
-        <div class="state">Chargement…</div>
+        <div class="card sk-table" aria-label="Chargement des messages" role="status">
+          <div class="sk-row sk-head">
+            @for (c of skCols; track $index) { <span class="skeleton"></span> }
+          </div>
+          @for (r of skRows; track $index) {
+            <div class="sk-row">
+              @for (c of skCols; track $index) { <span class="skeleton"></span> }
+            </div>
+          }
+        </div>
       } @else if (!rows().length) {
         <div class="state">Aucun message ne correspond aux filtres</div>
       } @else {
         <app-message-table
           [messages]="rows()" [page]="svc.currentPage()" [sort]="sort()"
           [selectedId]="svc.currentMessage()?.id ?? null"
+          [flashId]="svc.changedId()"
           (sortChange)="onSort($event)"
           (pageChange)="onPageChange($event)"
           (select)="openDrawer($event)"
@@ -49,6 +59,20 @@ import { payloadSize } from '../../../../shared/util/payload.util';
     .state { text-align: center; color: var(--muted-2); font-size: .85rem;
              background: var(--surface); border: 1px solid var(--border);
              border-radius: var(--radius-card); padding: var(--space-6); }
+
+    .sk-table { background: var(--surface); border: 1px solid var(--border);
+                border-radius: var(--radius-card); padding: 0; overflow: hidden; }
+    .sk-row { display: grid; grid-template-columns: 1.4fr 1.6fr 1fr .9fr .7fr .7fr 1fr .7fr;
+              gap: 16px; align-items: center; padding: 14px 16px;
+              border-bottom: 1px solid var(--border-soft); }
+    .sk-row:last-child { border-bottom: 0; }
+    .sk-head { background: var(--surface-head); }
+    .sk-row .skeleton { height: 12px; }
+    .sk-head .skeleton { height: 9px; opacity: .7; }
+    @media (max-width: 700px) {
+      .sk-row { grid-template-columns: 1.4fr 1fr .7fr; }
+      .sk-row .skeleton:nth-child(n+4) { display: none; }
+    }
   `]
 })
 export class MessageListPage implements OnInit, AfterViewInit {
@@ -60,6 +84,8 @@ export class MessageListPage implements OnInit, AfterViewInit {
 
   protected readonly sort = signal(DEFAULT_SORT);
   protected readonly typeFilter = signal('');
+  protected readonly skRows = Array(8);
+  protected readonly skCols = Array(8);
   private filters: MessageFilters = {};
   private pageIndex = 0;
   private pageSize = 20;

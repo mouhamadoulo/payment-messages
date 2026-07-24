@@ -1,4 +1,4 @@
-import { Component, output, inject, computed, isDevMode } from '@angular/core';
+import { Component, output, inject, computed } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { DecimalPipe } from '@angular/common';
 import { MessageService } from '../../features/messages/services/message.service';
@@ -14,7 +14,6 @@ import { relativeTime } from '../../shared/util/payload.util';
       <div class="logo">MQ</div>
       <div class="brand-text">
         <div class="brand-name">Payment Messages</div>
-        <div class="brand-sub">Supervision paiements</div>
       </div>
     </div>
 
@@ -40,10 +39,12 @@ import { relativeTime } from '../../shared/util/payload.util';
         </div>
         <div class="flux-line">{{ svc.total() | number:'1.0-0' }} messages en base</div>
         <div class="flux-line">dernier · {{ lastReceived() }}</div>
-      </div>
-      <div class="env">
-        <span class="env-label">Environnement</span>
-        <span class="env-badge" [class.prod]="!isDev">{{ isDev ? 'DEV' : 'PROD' }}</span>
+        @if (svc.mqConfig(); as mq) {
+          <div class="flux-queue" [title]="'Gestionnaire ' + mq.queueManager + ' · canal ' + mq.channel">
+            <span class="flux-key">queue</span>
+            <span class="flux-val">{{ mq.queue }}</span>
+          </div>
+        }
       </div>
     </div>
   `,
@@ -56,7 +57,6 @@ import { relativeTime } from '../../shared/util/payload.util';
             font-weight: 600; font-size: .94rem; letter-spacing: -.02em; }
     .brand-text { line-height: 1.15; min-width: 0; }
     .brand-name { font-size: .94rem; font-weight: 600; color: var(--text); }
-    .brand-sub { font-size: .69rem; color: var(--muted-2); font-weight: 500; }
 
     .section { font-size: .655rem; font-weight: 600; letter-spacing: .08em; color: var(--faint);
                text-transform: uppercase; padding: 4px 10px 8px; }
@@ -81,12 +81,12 @@ import { relativeTime } from '../../shared/util/payload.util';
                  font-size: .75rem; font-weight: 600; color: var(--text-2); }
     .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--success); flex: none; }
     .flux-line { font-size: .69rem; color: var(--muted-2); font-family: var(--font-mono); }
-
-    .env { display: flex; align-items: center; gap: 8px; padding: 2px 4px; }
-    .env-label { font-size: .69rem; color: var(--muted-2); }
-    .env-badge { font-size: .69rem; font-weight: 600; font-family: var(--font-mono); padding: 2px 8px;
-                 border-radius: 5px; background: var(--success-soft); color: var(--success); }
-    .env-badge.prod { background: var(--danger-soft); color: var(--danger); }
+    .flux-queue { display: flex; align-items: center; gap: 7px; margin-top: 8px;
+                  padding-top: 8px; border-top: 1px solid var(--border-soft); }
+    .flux-key { font-size: .58rem; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+                color: var(--muted-2); background: var(--border-soft); padding: 2px 6px; border-radius: 5px; }
+    .flux-val { font-size: .7rem; font-family: var(--font-mono); font-weight: 600; color: var(--text-2);
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
     @media (prefers-reduced-motion: no-preference) {
       .dot { animation: mq-pulse 1.8s infinite; }
@@ -96,7 +96,10 @@ import { relativeTime } from '../../shared/util/payload.util';
 export class SidebarComponent {
   readonly navigate = output<void>();
   protected readonly svc = inject(MessageService);
-  protected readonly isDev = isDevMode();
+
+  constructor() {
+    this.svc.loadConfig();
+  }
   protected readonly lastReceived = computed(() => {
     const latest = this.svc.activitySample()[0] ?? this.svc.messages()[0];
     return latest ? relativeTime(latest.receivedAt) : '—';
