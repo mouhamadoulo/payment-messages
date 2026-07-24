@@ -6,16 +6,15 @@ import { statusMeta } from '../../config/status.config';
   selector: 'app-status-badge',
   standalone: true,
   template: `
-    <span class="badge" [style.color]="meta().color"
-          [style.background]="meta().color + '1A'">
-      {{ meta().label }}
-    </span>
+    <span class="badge" [style.color]="meta().color" [style.background]="meta().bg"
+          [title]="meta().title">{{ meta().label }}</span>
   `,
   styles: [`
     .badge {
       display: inline-flex; align-items: center;
-      padding: 2px 10px; border-radius: var(--radius-pill);
-      font-size: .75rem; font-weight: 600; white-space: nowrap;
+      padding: 3px 10px; border-radius: var(--radius-pill);
+      font-family: var(--font-mono); font-size: .66rem; font-weight: 700;
+      letter-spacing: .02em; white-space: nowrap;
     }
   `]
 })

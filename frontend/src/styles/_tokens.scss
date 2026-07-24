@@ -1,29 +1,50 @@
 :root {
-  --bg: #F4F5F7;
+  /* --- surfaces --- */
+  --bg: #F4F6F8;
   --surface: #FFFFFF;
-  --border: #ECEDF0;
-  --text: #1A1D1F;
-  --muted: #6F767E;
-  --primary: #2F6BFF;
-  --primary-soft: #EAF1FF;
-  --success: #22C55E;
-  --danger: #EF4444;
-  --warning: #F97316;
+  --surface-alt: #F7F9FB;
+  --surface-head: #FBFCFD;
+  --border: #E3E8EE;
+  --border-soft: #EEF1F4;
 
-  --radius-card: 18px;
-  --radius-pill: 10px;
-  --shadow-card: 0 1px 2px rgba(16,24,40,.04), 0 1px 3px rgba(16,24,40,.06);
+  /* --- texte --- */
+  --text: #1A2733;
+  --text-2: #33465A;
+  --muted: #5B6B7B;
+  --muted-2: #8A99A8;
+  --faint: #A3B0BD;
+
+  /* --- accent --- */
+  --primary: #2B5FB0;
+  --primary-dark: #20539F;
+  --primary-soft: #EAF1FB;
+
+  /* --- sémantique --- */
+  --success: #27794C;
+  --success-soft: #E2F2E8;
+  --danger: #B53535;
+  --danger-soft: #F8E6E6;
+  --warning: #B0641F;
+  --warning-soft: #F7ECDC;
+  --critical: #9C2F54;
+  --critical-soft: #F6E5EB;
+
+  /* --- formes --- */
+  --radius-card: 12px;
+  --radius-ctl: 9px;
+  --radius-pill: 20px;
+  --shadow-card: 0 1px 2px rgba(20, 32, 45, .03);
+  --shadow-pop: 0 10px 30px rgba(20, 32, 45, .18);
 
   --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
   --space-4: 16px; --space-5: 24px; --space-6: 32px;
 
-  /* per-status accent — MUST match status.config.ts colors (Task 2) */
-  --st-received: #2F6BFF;
-  --st-validating: #F59E0B;
-  --st-processing: #6366F1;
-  --st-processed: #22C55E;
-  --st-failed: #EF4444;
-  --st-retry_pending: #F97316;
-  --st-rejected: #6B7280;
-  --st-dead_letter: #9333EA;
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+
+  /* per-status accent — MUST match status.config.ts colors */
+  --st-received: #2F5FA8;
+  --st-processed: #27794C;
+  --st-failed: #B53535;
+  --st-dead_letter: #586170;
 }

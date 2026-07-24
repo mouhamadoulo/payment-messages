@@ -1,34 +1,38 @@
 import { Component, input } from '@angular/core';
-import { DecimalPipe } from '@angular/common';
 
 @Component({
   selector: 'app-kpi-card',
   standalone: true,
-  imports: [DecimalPipe],
   template: `
-    <div class="card" [style.--accent]="accent()">
-      <span class="bar"></span>
-      <div class="body">
-        <span class="label">{{ label() }}</span>
-        <div class="value">{{ value() | number }}</div>
-        @if (share() !== undefined) { <div class="share">{{ share() }} % du total</div> }
+    <div class="card">
+      <div class="label">{{ label() }}</div>
+      <div class="row">
+        <span class="value">{{ value() }}</span>
+        @if (unit()) { <span class="unit">{{ unit() }}</span> }
+      </div>
+      <div class="note" [style.color]="noteColor()">
+        {{ note() }} <span class="hint">{{ hint() }}</span>
       </div>
     </div>
   `,
   styles: [`
-    .card { position: relative; display: flex; gap: var(--space-4); background: var(--surface);
-            border: 1px solid var(--border); border-radius: var(--radius-card);
-            box-shadow: var(--shadow-card); padding: var(--space-4); overflow: hidden; }
-    .bar { position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--accent); }
-    .body { padding-left: var(--space-2); }
-    .label { color: var(--muted); font-size: .82rem; font-weight: 500; }
-    .value { font-size: 2rem; font-weight: 700; margin-top: var(--space-2); }
-    .share { color: var(--muted); font-size: .78rem; margin-top: 2px; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
+            padding: 15px 17px; display: flex; flex-direction: column; gap: 7px; height: 100%; }
+    .label { font-size: .69rem; color: var(--muted-2); font-weight: 600; letter-spacing: .03em;
+             text-transform: uppercase; }
+    .row { display: flex; align-items: baseline; gap: 5px; }
+    .value { font-size: 1.69rem; font-weight: 600; font-family: var(--font-mono); color: var(--text);
+             letter-spacing: -.02em; }
+    .unit { font-size: .78rem; color: var(--muted-2); }
+    .note { font-size: .75rem; font-weight: 600; }
+    .hint { color: var(--faint); font-weight: 400; }
   `]
 })
 export class KpiCardComponent {
   readonly label = input.required<string>();
-  readonly value = input.required<number>();
-  readonly accent = input<string>('var(--primary)');
-  readonly share = input<number | undefined>(undefined);
+  readonly value = input.required<string>();
+  readonly unit = input<string>('');
+  readonly note = input<string>('');
+  readonly hint = input<string>('');
+  readonly noteColor = input<string>('var(--primary)');
 }

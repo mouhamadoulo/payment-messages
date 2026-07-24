@@ -13,7 +13,7 @@ import { PaymentMessageStatus } from '../../models/message.model';
     <div class="detail">
       <a routerLink="/messages" class="back-link">← Retour</a>
 
-      @if (messageService.loading()) {
+      @if (messageService.detailLoading()) {
         <div class="state">Chargement…</div>
       } @else if (messageService.error(); as err) {
         <div class="state error">{{ err }}</div>
@@ -27,9 +27,9 @@ import { PaymentMessageStatus } from '../../models/message.model';
     </div>
   `,
   styles: [`
-    .detail { max-width: 900px; margin: 0 auto; }
+    .detail { max-width: 960px; margin: 0 auto; }
     .back-link { display: inline-block; margin-bottom: var(--space-4); color: var(--muted);
-                 text-decoration: none; font-weight: 600; font-size: .88rem; }
+                 text-decoration: none; font-weight: 600; font-size: .82rem; }
     .back-link:hover { color: var(--text); }
     .state { text-align: center; color: var(--muted); padding: var(--space-6); }
     .state.error { color: var(--danger); }
