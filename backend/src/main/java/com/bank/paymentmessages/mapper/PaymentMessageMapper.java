@@ -24,7 +24,6 @@ public final class PaymentMessageMapper {
                 .retryCount(entity.getRetryCount())
                 .errorMessage(entity.getErrorMessage())
                 .receivedAt(entity.getReceivedAt())
-                .processedAt(entity.getProcessedAt())
                 .updatedAt(entity.getUpdatedAt())
                 .build();
     }

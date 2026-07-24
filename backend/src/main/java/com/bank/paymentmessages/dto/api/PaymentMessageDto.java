@@ -28,12 +28,8 @@ public class PaymentMessageDto {
             example = "RECEIVED",
             allowableValues = {
                     "RECEIVED",
-                    "VALIDATING",
-                    "PROCESSING",
                     "PROCESSED",
                     "FAILED",
-                    "RETRY_PENDING",
-                    "REJECTED",
                     "DEAD_LETTER"
             })
     private PaymentMessageStatus status;
@@ -48,8 +44,6 @@ public class PaymentMessageDto {
     private String errorMessage;
 
     private LocalDateTime receivedAt;
-
-    private LocalDateTime processedAt;
 
     private LocalDateTime updatedAt;
 }

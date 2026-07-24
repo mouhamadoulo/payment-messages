@@ -40,7 +40,6 @@ Liste paginée des messages avec filtres optionnels.
       "retryCount": 0,
       "errorMessage": null,
       "receivedAt": "2025-01-15T10:00:00",
-      "processedAt": "2025-01-15T10:00:05",
       "updatedAt": "2025-01-15T10:00:05"
     }
   ],
@@ -61,13 +60,9 @@ Retourne le nombre de messages pour chaque statut.
 ```json
 {
   "RECEIVED": 15,
-  "VALIDATING": 0,
-  "PROCESSING": 2,
   "PROCESSED": 42,
   "FAILED": 3,
-  "RETRY_PENDING": 1,
-  "REJECTED": 0,
-  "DEAD_LETTER": 0
+  "DEAD_LETTER": 1
 }
 ```
 
@@ -96,7 +91,6 @@ Détail d'un message par son ID technique.
   "retryCount": 0,
   "errorMessage": null,
   "receivedAt": "2025-01-15T10:00:00",
-  "processedAt": "2025-01-15T10:00:05",
   "updatedAt": "2025-01-15T10:00:05"
 }
 ```
@@ -132,14 +126,16 @@ Supprime un message par son ID.
 
 ### POST /api/v1/messages/batch/retry-failed
 
-Réinitialise tous les messages en statut `FAILED` ou `RETRY_PENDING` pour une nouvelle tentative.
+Rejoue tous les messages en statut `FAILED` : `retryCount` est incrémenté et chaque message repasse en
+`RECEIVED`. Au-delà de `ibm.mq.max-retries` tentatives, le message part en `DEAD_LETTER` et son payload
+est republié sur la Dead Letter Queue.
 
 **Réponse** `200 OK`
 
 ```json
 {
   "affected": 3,
-  "status": "SUCCESS"
+  "status": "RECEIVED"
 }
 ```
 
@@ -147,7 +143,9 @@ Réinitialise tous les messages en statut `FAILED` ou `RETRY_PENDING` pour une n
 
 ### POST /api/v1/messages/{id}/retry
 
-Réinitialise un message spécifique pour une nouvelle tentative.
+Rejoue un message en échec : `retryCount` est incrémenté et le message repasse en `RECEIVED`.
+Au-delà de `ibm.mq.max-retries` tentatives, il passe en `DEAD_LETTER` et son payload est republié
+sur la Dead Letter Queue. Seuls les messages `FAILED` sont rejouables.
 
 **Paramètres**
 
@@ -160,13 +158,18 @@ Réinitialise un message spécifique pour une nouvelle tentative.
 ```json
 {
   "id": 1,
-  "status": "RETRY_PENDING",
-  "retryCount": 0,
+  "status": "RECEIVED",
+  "retryCount": 2,
   "errorMessage": null
 }
 ```
 
-**Erreur** `404 Not Found`
+**Erreurs**
+
+| Code | Cas |
+|---|---|
+| `400 Bad Request` | Statut différent de `FAILED` |
+| `404 Not Found` | Message inexistant |
 
 ---
 
@@ -193,7 +196,7 @@ Met à jour le statut d'un message.
 {
   "id": 1,
   "status": "PROCESSED",
-  "processedAt": "2025-01-15T10:00:05"
+  "updatedAt": "2025-01-15T10:00:05"
 }
 ```
 
@@ -212,14 +215,10 @@ Met à jour le statut d'un message.
 
 | Valeur | Description |
 |---|---|
-| `RECEIVED` | Message reçu de la file MQ |
-| `VALIDATING` | Validation en cours |
-| `PROCESSING` | Traitement en cours |
-| `PROCESSED` | Traité avec succès |
-| `FAILED` | Erreur technique/métier |
-| `RETRY_PENDING` | En attente de nouvelle tentative |
-| `REJECTED` | Message invalide (définitif) |
-| `DEAD_LETTER` | Envoyé en Dead Letter Queue |
+| `RECEIVED` | Message reçu de la file MQ, en attente de traitement |
+| `PROCESSED` | Traité avec succès (terminal) |
+| `FAILED` | Erreur technique/métier, rejouable via `/retry` |
+| `DEAD_LETTER` | Abandonné après `max-retries` tentatives, republié sur la DLQ (terminal) |
 
 ### PaymentMessageDto
 
@@ -234,7 +233,6 @@ Met à jour le statut d'un message.
 | `retryCount` | `Integer` | Nombre de tentatives |
 | `errorMessage` | `String` | Message d'erreur |
 | `receivedAt` | `LocalDateTime` | Date de réception MQ |
-| `processedAt` | `LocalDateTime` | Date de traitement |
 | `updatedAt` | `LocalDateTime` | Date de mise à jour |
 
 ---

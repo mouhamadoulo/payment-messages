@@ -52,8 +52,7 @@ export class MessageListPage implements OnInit {
   protected onFilter(filters: MessageFilters) { this.currentFilters = filters; this.svc.loadMessages(filters); }
   protected onPageChange(e: PageEvent) { this.svc.loadMessages(this.currentFilters, e.pageIndex, e.pageSize); }
   protected showRetry() {
-    return this.svc.filteredMessages().some(
-      (m) => m.status === PaymentMessageStatus.FAILED || m.status === PaymentMessageStatus.RETRY_PENDING);
+    return this.svc.filteredMessages().some((m) => m.status === PaymentMessageStatus.FAILED);
   }
   protected batchRetry() { this.svc.batchRetryFailed(); }
 }

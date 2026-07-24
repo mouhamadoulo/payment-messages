@@ -125,7 +125,7 @@ Méthodes dérivées :
 | `findByStatus(PaymentMessageStatus, Pageable)` | `WHERE status = ?` avec pagination |
 | `findByReceivedAtAfter(LocalDateTime, Pageable)` | `WHERE received_at > ?` avec pagination |
 | `findByStatusAndReceivedAtAfter(...)` | `WHERE status = ? AND received_at > ?` avec pagination |
-| `findByStatusIn(List<PaymentMessageStatus>)` | `WHERE status IN ?` |
+| `findAllByStatus(PaymentMessageStatus)` | `WHERE status = ?` (sans pagination) |
 | `countByStatus()` | `SELECT status, COUNT(*) GROUP BY status` (JPQL) |
 
 ### 5.4 JMS Listener (`PaymentMessageListener`)
@@ -186,6 +186,8 @@ Toutes les réponses d'erreur suivent le format :
 | `MQ_USER` | Utilisateur MQ |
 | `MQ_PASSWORD` | Mot de passe MQ |
 | `MQ_QUEUE` | File à écouter |
+| `MQ_DLQ_QUEUE` | Dead Letter Queue applicative |
+| `MQ_MAX_RETRIES` | Nombre de rejeux avant `DEAD_LETTER` |
 | `SERVER_PORT` | Port du serveur |
 
 ### 6.3 Actuator

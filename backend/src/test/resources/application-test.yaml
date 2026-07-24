@@ -21,6 +21,8 @@ ibm:
     password: test
     receive-timeout: 1000
     queue: TEST.QUEUE
+    dlq-queue: TEST.DLQ.QUEUE
+    max-retries: 3
 
 server:
   port: 0

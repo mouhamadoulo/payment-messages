@@ -6,7 +6,9 @@ import com.bank.paymentmessages.entity.PaymentMessage;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
 import com.bank.paymentmessages.mapper.PaymentMessageMapper;
+import com.bank.paymentmessages.mq.DeadLetterPublisher;
 import com.bank.paymentmessages.repository.PaymentMessageRepository;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -14,16 +16,21 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 
 @Service
 public class PaymentMessageService {
 
     private final PaymentMessageRepository repository;
+    private final DeadLetterPublisher deadLetterPublisher;
+    private final int maxRetries;
 
-    public PaymentMessageService(PaymentMessageRepository repository){
+    public PaymentMessageService(PaymentMessageRepository repository,
+                                 DeadLetterPublisher deadLetterPublisher,
+                                 @Value("${ibm.mq.max-retries}") int maxRetries){
         this.repository = repository;
+        this.deadLetterPublisher = deadLetterPublisher;
+        this.maxRetries = maxRetries;
     }
 
     public PaymentMessage saveMessage(PaymentMessageEvent event, String rawPayload) {
@@ -81,14 +88,9 @@ public class PaymentMessageService {
     }
 
     public int batchRetryFailed() {
-        List<PaymentMessageStatus> targets = List.of(
-                PaymentMessageStatus.FAILED, PaymentMessageStatus.RETRY_PENDING);
-        List<PaymentMessage> messages = repository.findByStatusIn(targets);
+        List<PaymentMessage> messages = repository.findAllByStatus(PaymentMessageStatus.FAILED);
         for (PaymentMessage message : messages) {
-            message.setStatus(PaymentMessageStatus.RETRY_PENDING);
-            message.setRetryCount(0);
-            message.setErrorMessage(null);
-            message.setUpdatedAt(LocalDateTime.now());
+            applyRetry(message);
         }
         repository.saveAll(messages);
         return messages.size();
@@ -97,22 +99,46 @@ public class PaymentMessageService {
     public PaymentMessageDto retry(Long id) {
         PaymentMessage message = repository.findById(id)
                 .orElseThrow(() -> new PaymentMessageNotFoundException(id));
-        message.setStatus(PaymentMessageStatus.RETRY_PENDING);
-        message.setRetryCount(0);
-        message.setErrorMessage(null);
-        message.setUpdatedAt(LocalDateTime.now());
+        if (message.getStatus() != PaymentMessageStatus.FAILED) {
+            throw new IllegalArgumentException(
+                    "Seuls les messages FAILED sont rejouables, statut actuel : " + message.getStatus());
+        }
+        applyRetry(message);
         return PaymentMessageMapper.toDto(repository.save(message));
     }
 
     public PaymentMessageDto updateStatus(Long id, PaymentMessageStatus newStatus) {
         PaymentMessage message = repository.findById(id)
                 .orElseThrow(() -> new PaymentMessageNotFoundException(id));
+        boolean entersDeadLetter = newStatus == PaymentMessageStatus.DEAD_LETTER
+                && message.getStatus() != PaymentMessageStatus.DEAD_LETTER;
         message.setStatus(newStatus);
         message.setUpdatedAt(LocalDateTime.now());
-        if (newStatus == PaymentMessageStatus.PROCESSED) {
-            message.setProcessedAt(LocalDateTime.now());
+        PaymentMessageDto dto = PaymentMessageMapper.toDto(repository.save(message));
+        if (entersDeadLetter) {
+            deadLetterPublisher.publish(message);
         }
-        return PaymentMessageMapper.toDto(repository.save(message));
+        return dto;
+    }
+
+    /**
+     * Incrémente le compteur de tentatives et remet le message en attente de traitement.
+     * Au-delà du seuil configuré, le message part en Dead Letter Queue.
+     */
+    private void applyRetry(PaymentMessage message) {
+        int attempt = message.getRetryCount() == null ? 1 : message.getRetryCount() + 1;
+        message.setRetryCount(attempt);
+        message.setUpdatedAt(LocalDateTime.now());
+
+        if (attempt > maxRetries) {
+            message.setStatus(PaymentMessageStatus.DEAD_LETTER);
+            message.setErrorMessage("Abandonné après " + maxRetries + " tentatives");
+            deadLetterPublisher.publish(message);
+            return;
+        }
+
+        message.setStatus(PaymentMessageStatus.RECEIVED);
+        message.setErrorMessage(null);
     }
 
 }

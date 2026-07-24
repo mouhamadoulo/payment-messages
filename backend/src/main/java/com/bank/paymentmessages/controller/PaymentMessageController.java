@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
@@ -42,7 +43,7 @@ public class PaymentMessageController {
     public Page<PaymentMessageDto> findAll(
             @RequestParam(required = false) PaymentMessageStatus status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime receivedAfter,
-            @PageableDefault(size = 20) Pageable pageable) {
+            @PageableDefault(size = 20, sort = "receivedAt", direction = Sort.Direction.DESC) Pageable pageable) {
         if (status != null || receivedAfter != null) {
             return service.search(status, receivedAfter, pageable);
         }
@@ -83,21 +84,26 @@ public class PaymentMessageController {
     }
 
     @PostMapping("/batch/retry-failed")
-    @Operation(summary = "Relance tous les messages FAILED et RETRY_PENDING",
-            description = "Réinitialise retryCount, efface les erreurs et repasse en RETRY_PENDING")
+    @Operation(summary = "Relance tous les messages FAILED",
+            description = "Incrémente retryCount et repasse chaque message en RECEIVED. "
+                    + "Au-delà du seuil ibm.mq.max-retries, le message part en DEAD_LETTER "
+                    + "et son payload est republié sur la Dead Letter Queue.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Messages relancés")
     })
     public Map<String, Object> batchRetryFailed() {
         int count = service.batchRetryFailed();
-        return Map.of("affected", count, "status", "RETRY_PENDING");
+        return Map.of("affected", count, "status", "RECEIVED");
     }
 
     @PostMapping("/{id}/retry")
-    @Operation(summary = "Réinitialise un message pour nouvel essai",
-            description = "Remet retryCount à 0, efface l'erreur et passe le statut en RETRY_PENDING")
+    @Operation(summary = "Rejoue un message en échec",
+            description = "Incrémente retryCount, efface l'erreur et repasse le statut en RECEIVED. "
+                    + "Au-delà du seuil ibm.mq.max-retries, le message part en DEAD_LETTER. "
+                    + "Seuls les messages FAILED sont rejouables.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Message réinitialisé pour retry"),
+            @ApiResponse(responseCode = "200", description = "Message rejoué"),
+            @ApiResponse(responseCode = "400", description = "Message non rejouable (statut différent de FAILED)"),
             @ApiResponse(responseCode = "404", description = "Message inexistant")
     })
     public PaymentMessageDto retry(@Parameter(description = "Identifiant du message") @PathVariable Long id) {

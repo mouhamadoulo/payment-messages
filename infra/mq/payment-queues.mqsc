@@ -1,0 +1,13 @@
+* Files applicatives du projet payment-messages.
+* Executees automatiquement par l'image IBM MQ a la creation du queue manager.
+
+DEFINE QLOCAL('PAYMENT.REQUEST.QUEUE') REPLACE
+       DESCR('File d entree des messages de paiement')
+       DEFPSIST(YES)
+
+DEFINE QLOCAL('PAYMENT.DLQ.QUEUE') REPLACE
+       DESCR('Dead Letter Queue applicative du projet')
+       DEFPSIST(YES)
+
+* Droits d acces pour l utilisateur applicatif "app" du conteneur de dev.
+SET AUTHREC PROFILE('PAYMENT.**') PRINCIPAL('app') OBJTYPE(QUEUE) AUTHADD(ALL)

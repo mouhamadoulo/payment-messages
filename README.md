@@ -103,7 +103,7 @@ Documentation détaillée dans [docs/architecture/](docs/architecture/) :
 - ✅ Documentation Swagger UI (OpenAPI)
 - ✅ Gestion centralisée des erreurs
 - ✅ Métriques et santé (Actuator)
-- ✅ Cycle de vie à 8 statuts (RECEIVED → DEAD_LETTER)
+- ✅ Cycle de vie à 4 statuts (RECEIVED → PROCESSED / FAILED → DEAD_LETTER)
 
 ### Frontend
 
@@ -178,6 +178,8 @@ Variables d'environnement requises (ou définies dans `application-dev.yaml`) :
 | `DB_PASSWORD` | `payment` |
 | `MQ_CONN_NAME` | `localhost(1414)` |
 | `MQ_QUEUE` | `PAYMENT.REQUEST.QUEUE` |
+| `MQ_DLQ_QUEUE` | `PAYMENT.DLQ.QUEUE` |
+| `MQ_MAX_RETRIES` | `3` |
 
 ### IBM MQ
 

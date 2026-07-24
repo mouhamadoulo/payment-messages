@@ -48,15 +48,13 @@ flowchart LR
 stateDiagram-v2
     direction LR
     [*] --> RECEIVED: Message reçu de MQ
-    RECEIVED --> PROCESSING: Traitement
-    PROCESSING --> PROCESSED: Succès
-    PROCESSING --> FAILED: Erreur
-    FAILED --> RETRY_PENDING: Nouvelle tentative
-    RETRY_PENDING --> PROCESSING: Reprise
-    RETRY_PENDING --> DEAD_LETTER: Abandon
+    RECEIVED --> PROCESSED: Succès
+    RECEIVED --> FAILED: Erreur
+    FAILED --> RECEIVED: Nouvelle tentative (/retry)
+    FAILED --> DEAD_LETTER: Abandon après max-retries
 ```
 
-Le cycle de vie complet (8 statuts) et les transitions détaillées sont documentés dans [flux.md](./flux.md).
+Le cycle de vie complet (4 statuts) et les transitions détaillées sont documentés dans [flux.md](./flux.md).
 
 ---
 

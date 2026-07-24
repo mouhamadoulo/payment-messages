@@ -46,8 +46,6 @@ public class PaymentMessage {
 
     private LocalDateTime receivedAt;
 
-    private LocalDateTime processedAt;
-
     private LocalDateTime updatedAt;
 
 }

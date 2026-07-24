@@ -26,18 +26,11 @@ flowchart LR
 ```mermaid
 stateDiagram-v2
     [*] --> RECEIVED: Message reçu de MQ
-    RECEIVED --> VALIDATING: Validation démarrée
-    VALIDATING --> PROCESSING: Validation réussie
-    VALIDATING --> REJECTED: Structure invalide
-    PROCESSING --> PROCESSED: Traitement réussi
-    PROCESSING --> FAILED: Erreur technique
-    PROCESSING --> RETRY_PENDING: Erreur temporaire
-    FAILED --> RETRY_PENDING: Nouvelle tentative
-    RETRY_PENDING --> PROCESSING: Reprise traitement
-    FAILED --> DEAD_LETTER: Abandon (DLQ)
-    RETRY_PENDING --> DEAD_LETTER: Échecs répétés
+    RECEIVED --> PROCESSED: PUT /{id}/status "PROCESSED"
+    RECEIVED --> FAILED: PUT /{id}/status "FAILED"
+    FAILED --> RECEIVED: POST /{id}/retry (retryCount <= max-retries)
+    FAILED --> DEAD_LETTER: POST /{id}/retry (retryCount > max-retries)
     PROCESSED --> [*]
-    REJECTED --> [*]
     DEAD_LETTER --> [*]
 ```
 
@@ -45,14 +38,13 @@ stateDiagram-v2
 
 | Statut | Description |
 |---|---|
-| `RECEIVED` | Message reçu de la file MQ et persisté |
-| `VALIDATING` | Validation de la structure en cours |
-| `PROCESSING` | Traitement métier en cours |
-| `PROCESSED` | Traitement terminé avec succès |
-| `FAILED` | Erreur technique ou métier |
-| `RETRY_PENDING` | En attente d'une nouvelle tentative |
-| `REJECTED` | Message définitivement invalide |
-| `DEAD_LETTER` | Message envoyé en Dead Letter Queue |
+| `RECEIVED` | Message reçu de la file MQ et persisté, en attente de traitement |
+| `PROCESSED` | Traitement terminé avec succès (état terminal) |
+| `FAILED` | Erreur technique ou métier, rejouable via `/retry` |
+| `DEAD_LETTER` | Abandonné après `ibm.mq.max-retries` tentatives, payload republié sur la DLQ (état terminal) |
+
+> Aucune transition n'est automatique : le listener ne pose que l'état initial `RECEIVED`.
+> `PROCESSED` et `FAILED` sont pilotés par `PUT /{id}/status`, `RECEIVED`/`DEAD_LETTER` par `/retry`.
 
 ---
 
@@ -114,11 +106,11 @@ sequenceDiagram
 
     Client->>Controller: POST /api/v1/messages/batch/retry-failed
     Controller->>Service: batchRetryFailed()
-    Service->>DB: findByStatusIn([FAILED, RETRY_PENDING])
-    Service->>Service: Pour chaque → setStatus(RETRY_PENDING), retryCount=0
+    Service->>DB: findAllByStatus(FAILED)
+    Service->>Service: Pour chaque → retryCount+1, RECEIVED (ou DEAD_LETTER + publication DLQ)
     Service->>DB: saveAll(updated)
     Service-->>Controller: int (nombre affecté)
-    Controller-->>Client: {"affected": 3, "status": "SUCCESS"}
+    Controller-->>Client: {"affected": 3, "status": "RECEIVED"}
 ```
 
 ---

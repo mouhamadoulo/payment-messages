@@ -3,8 +3,8 @@ import { PaymentMessageStatus } from '../../features/messages/models/message.mod
 import { STATUS_META, statusMeta, STATUS_ORDER } from './status.config';
 
 describe('status.config', () => {
-  it('covers all 8 statuses', () => {
-    expect(Object.keys(STATUS_META)).toHaveLength(8);
+  it('covers every status of the enum', () => {
+    expect(Object.keys(STATUS_META)).toHaveLength(Object.values(PaymentMessageStatus).length);
     for (const s of Object.values(PaymentMessageStatus)) {
       expect(STATUS_META[s]).toBeDefined();
       expect(STATUS_META[s].color).toMatch(/^#/);

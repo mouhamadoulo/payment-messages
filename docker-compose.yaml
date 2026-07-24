@@ -45,6 +45,8 @@ services:
       - "9443:9443"
     volumes:
       - mq_data:/mnt/mqm
+      # Cree PAYMENT.REQUEST.QUEUE et PAYMENT.DLQ.QUEUE au demarrage du QM
+      - ./infra/mq/payment-queues.mqsc:/etc/mqm/payment-queues.mqsc:ro
     healthcheck:
       test: ["CMD-SHELL", "chkmqhealthy"]
       interval: 15s
@@ -60,8 +62,6 @@ services:
     container_name: payment-backend
     restart: unless-stopped
     environment:
-      # Le profil "docker" n'a pas de fichier YAML dedie : tout vient des variables
-      # ci-dessous, lues par application.yaml. Evite la dependance a application-dev.yaml.
       SPRING_PROFILES_ACTIVE: docker
       SERVER_PORT: 8080
       DB_URL: jdbc:postgresql://postgres:5432/payment_messages
@@ -74,6 +74,8 @@ services:
       MQ_USER: app
       MQ_PASSWORD: passw0rd
       MQ_QUEUE: PAYMENT.REQUEST.QUEUE
+      MQ_DLQ_QUEUE: PAYMENT.DLQ.QUEUE
+      MQ_MAX_RETRIES: 3
     ports:
       - "8080:8080"
     depends_on:
@@ -82,7 +84,6 @@ services:
       ibm-mq:
         condition: service_healthy
     healthcheck:
-      # curl absent de l'image temurin-jre : test TCP via bash
       test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
       interval: 15s
       timeout: 5s

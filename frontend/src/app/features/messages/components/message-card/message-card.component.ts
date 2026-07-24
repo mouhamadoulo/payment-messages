@@ -1,6 +1,6 @@
 import { Component, input, output, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
-import { PaymentMessage } from '../../models/message.model';
+import { PaymentMessage, PaymentMessageStatus } from '../../models/message.model';
 import { StatusBadgeComponent } from '../../../../shared/components/status-badge/status-badge.component';
 
 @Component({
@@ -13,7 +13,9 @@ import { StatusBadgeComponent } from '../../../../shared/components/status-badge
         <div class="head">
           <div class="title"><h1>{{ msg.reference }}</h1><app-status-badge [status]="msg.status" /></div>
           <div class="actions">
-            <button class="btn primary" (click)="retry.emit()">Réessayer</button>
+            <button class="btn primary" [disabled]="!canRetry(msg)"
+                    title="Seuls les messages en échec sont rejouables"
+                    (click)="retry.emit()">Réessayer</button>
             <button class="btn ghost" (click)="changeStatus.emit()">Changer statut</button>
             <button class="btn danger" (click)="delete.emit()">Supprimer</button>
           </div>
@@ -24,7 +26,6 @@ import { StatusBadgeComponent } from '../../../../shared/components/status-badge
           <div><dt>Type</dt><dd>{{ msg.messageType }}</dd></div>
           <div><dt>Tentatives</dt><dd>{{ msg.retryCount }}</dd></div>
           <div><dt>Reçu le</dt><dd>{{ msg.receivedAt | date:'dd/MM/yyyy HH:mm' }}</dd></div>
-          <div><dt>Traité le</dt><dd>{{ msg.processedAt ? (msg.processedAt | date:'dd/MM/yyyy HH:mm') : '—' }}</dd></div>
           <div><dt>Mis à jour</dt><dd>{{ msg.updatedAt | date:'dd/MM/yyyy HH:mm' }}</dd></div>
         </dl>
 
@@ -49,6 +50,7 @@ import { StatusBadgeComponent } from '../../../../shared/components/status-badge
            cursor: pointer; border: 1px solid var(--border); background: var(--surface); color: var(--text);
            font-family: inherit; }
     .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
     .btn.danger { color: var(--danger); border-color: var(--danger); }
     .btn.ghost:hover { background: var(--bg); }
     .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); margin: 0 0 var(--space-4); }
@@ -74,4 +76,5 @@ export class MessageCardComponent {
   readonly changeStatus = output<void>();
   readonly delete = output<void>();
   protected readonly showPayload = signal(false);
+  protected canRetry(msg: PaymentMessage) { return msg.status === PaymentMessageStatus.FAILED; }
 }

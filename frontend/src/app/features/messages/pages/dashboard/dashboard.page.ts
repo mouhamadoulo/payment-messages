@@ -2,7 +2,6 @@ import { Component, OnInit, inject, computed } from '@angular/core';
 import { Router } from '@angular/router';
 import { DatePipe, DecimalPipe } from '@angular/common';
 import { MessageService } from '../../services/message.service';
-import { PaymentMessageStatus } from '../../models/message.model';
 import { STATUS_ORDER, statusMeta } from '../../../../shared/config/status.config';
 import { KpiCardComponent } from '../../../../shared/ui/kpi-card/kpi-card.component';
 import { ApexDonutComponent } from '../../../../shared/ui/apex/apex-donut.component';
@@ -10,11 +9,6 @@ import { ApexGaugeComponent } from '../../../../shared/ui/apex/apex-gauge.compon
 import { ApexBarComponent } from '../../../../shared/ui/apex/apex-bar.component';
 import { hourHistogram } from '../../../../shared/ui/histogram/hour-histogram';
 import { StatusBadgeComponent } from '../../../../shared/components/status-badge/status-badge.component';
-
-const PENDING = [
-  PaymentMessageStatus.RECEIVED, PaymentMessageStatus.VALIDATING,
-  PaymentMessageStatus.PROCESSING, PaymentMessageStatus.RETRY_PENDING,
-];
 
 @Component({
   selector: 'app-dashboard',
@@ -46,7 +40,7 @@ const PENDING = [
         <div class="card actions">
           <div class="card-head"><h2>À traiter</h2></div>
           <div class="big-num">{{ actionable() | number }}</div>
-          <p class="muted">échecs + à réessayer</p>
+          <p class="muted">messages en échec, rejouables</p>
           <button class="btn" (click)="retryFailed()">Rejouer les échecs</button>
         </div>
       </div>
@@ -125,9 +119,9 @@ export class DashboardPage implements OnInit {
   protected count(s: string) { return this.stats()[s] ?? 0; }
   protected total = computed(() => Object.values(this.stats()).reduce((a, b) => a + b, 0));
   protected share(s: string) { const t = this.total(); return t ? Math.round((this.count(s) / t) * 100) : 0; }
-  protected pending = computed(() => PENDING.reduce((a, s) => a + this.count(s), 0));
+  protected pending = computed(() => this.count('RECEIVED'));
   protected pendingShare = computed(() => { const t = this.total(); return t ? Math.round((this.pending() / t) * 100) : 0; });
-  protected actionable = computed(() => this.count('FAILED') + this.count('RETRY_PENDING'));
+  protected actionable = computed(() => this.count('FAILED'));
   protected successRate = computed(() => { const t = this.total(); return t ? Math.round((this.count('PROCESSED') / t) * 100) : 0; });
   protected recent = computed(() => this.svc.messages());
   protected hourData = computed(() => hourHistogram(this.svc.activitySample()));

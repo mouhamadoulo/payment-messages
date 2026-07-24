@@ -28,6 +28,8 @@ ibm:
     password: ${MQ_PASSWORD}
     receive-timeout: 5000
     queue: ${MQ_QUEUE}
+    dlq-queue: ${MQ_DLQ_QUEUE}
+    max-retries: ${MQ_MAX_RETRIES}
 
 
 server:

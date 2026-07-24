@@ -14,7 +14,6 @@ erDiagram
         integer retry_count "Nombre de tentatives"
         text error_message "Détail de l'erreur"
         timestamp received_at "Date réception MQ"
-        timestamp processed_at "Date traitement"
         timestamp updated_at "Date mise à jour"
     }
 ```
@@ -34,7 +33,6 @@ erDiagram
 | `retry_count` | `INTEGER` | `NOT NULL DEFAULT 0` | Nombre de tentatives de reprise |
 | `error_message` | `TEXT` | nullable | Message d'erreur détaillé |
 | `received_at` | `TIMESTAMP` | nullable | Date et heure de réception depuis MQ |
-| `processed_at` | `TIMESTAMP` | nullable | Date et heure de fin de traitement |
 | `updated_at` | `TIMESTAMP` | nullable | Date et heure de dernière mise à jour |
 
 ### 2.2 Index
@@ -56,14 +54,10 @@ Stockée en tant que `VARCHAR` en base via `@Enumerated(STRING)`.
 
 | Valeur | Signification |
 |---|---|
-| `RECEIVED` | Message consommé de la file MQ et persisté |
-| `VALIDATING` | Validation de la structure en cours |
-| `PROCESSING` | Traitement métier en cours |
-| `PROCESSED` | Traitement terminé avec succès |
-| `FAILED` | Erreur technique ou métier |
-| `RETRY_PENDING` | En attente d'une nouvelle tentative |
-| `REJECTED` | Message définitivement invalide |
-| `DEAD_LETTER` | Message envoyé en Dead Letter Queue |
+| `RECEIVED` | Message consommé de la file MQ et persisté, en attente de traitement |
+| `PROCESSED` | Traitement terminé avec succès (terminal) |
+| `FAILED` | Erreur technique ou métier, rejouable via `/retry` |
+| `DEAD_LETTER` | Abandonné après `ibm.mq.max-retries` tentatives, republié sur la DLQ (terminal) |
 
 ---
 
