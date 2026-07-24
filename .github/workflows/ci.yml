@@ -54,6 +54,14 @@ jobs:
     name: Docker Compose
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - name: Validate docker-compose.yaml
+      - uses: actions/checkout@v4
+
+      - name: Validate syntax
         run: docker compose -f docker-compose.yaml config --quiet
+
+      - name: Smoke test (start & check)
+        run: |
+          docker compose -f docker-compose.yaml up -d
+          sleep 10
+          docker compose -f docker-compose.yaml ps
+          docker compose -f docker-compose.yaml down -v
