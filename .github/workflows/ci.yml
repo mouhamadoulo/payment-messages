@@ -49,3 +49,30 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
+
+  docker-compose:
+    name: Docker Compose
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Validate syntax
+        run: docker compose -f docker-compose.yaml config --quiet
+
+      - name: Smoke test (start & check)
+        run: |
+          docker compose -f docker-compose.yaml up -d --wait --wait-timeout 300
+          docker compose -f docker-compose.yaml ps
+
+      - name: Dump diagnostics on failure
+        if: failure()
+        run: |
+          docker compose -f docker-compose.yaml ps -a
+          docker inspect payment-mq --format '{{json .State}}' || true
+          docker compose -f docker-compose.yaml logs --no-color --tail 300
+          docker run --rm -v payment-messages_mq_data:/d busybox \
+            sh -c 'cat /d/data/qmgrs/QM1/errors/autocfgmqsc.LOG' || true
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.yaml down -v

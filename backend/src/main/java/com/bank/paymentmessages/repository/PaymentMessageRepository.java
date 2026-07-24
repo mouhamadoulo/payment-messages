@@ -23,7 +23,7 @@ public interface PaymentMessageRepository  extends JpaRepository<PaymentMessage,
 
     Page<PaymentMessage> findByStatusAndReceivedAtAfter(PaymentMessageStatus status, LocalDateTime receivedAfter, Pageable pageable);
 
-    List<PaymentMessage> findByStatusIn(List<PaymentMessageStatus> statuses);
+    List<PaymentMessage> findAllByStatus(PaymentMessageStatus status);
 
     @Query("SELECT p.status, COUNT(p) FROM PaymentMessage p GROUP BY p.status")
     List<Object[]> countByStatus();

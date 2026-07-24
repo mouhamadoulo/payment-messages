@@ -1,0 +1,103 @@
+:root {
+  color-scheme: light;
+  /* --- surfaces --- */
+  --bg: #F4F6F8;
+  --surface: #FFFFFF;
+  --surface-alt: #F7F9FB;
+  --surface-head: #FBFCFD;
+  --border: #E3E8EE;
+  --border-soft: #EEF1F4;
+  --ctl-border: #D3DAE2;
+  --row-hover: #F5F8FC;
+
+  /* badge "Données" (header) */
+  --live-bg: #F0F7F2;
+  --live-border: #D9ECDF;
+  --live-text: #5F8A70;
+
+  /* bordures des cartes d'alerte (dashboard) */
+  --danger-border: #F3DEDE;
+  --critical-border: #F2DDE4;
+
+  /* --- texte --- */
+  --text: #1A2733;
+  --text-2: #33465A;
+  --muted: #5B6B7B;
+  --muted-2: #8A99A8;
+  --faint: #A3B0BD;
+
+  /* --- accent --- */
+  --primary: #2B5FB0;
+  --primary-dark: #20539F;
+  --primary-soft: #EAF1FB;
+
+  /* --- sémantique --- */
+  --success: #27794C;
+  --success-soft: #E2F2E8;
+  --danger: #B53535;
+  --danger-soft: #F8E6E6;
+  --warning: #B0641F;
+  --warning-soft: #F7ECDC;
+  --critical: #9C2F54;
+  --critical-soft: #F6E5EB;
+
+  /* --- formes --- */
+  --radius-card: 12px;
+  --radius-ctl: 9px;
+  --radius-pill: 20px;
+  --shadow-card: 0 1px 2px rgba(20, 32, 45, .03);
+  --shadow-pop: 0 10px 30px rgba(20, 32, 45, .18);
+
+  --space-1: 4px;  --space-2: 8px;  --space-3: 12px;
+  --space-4: 16px; --space-5: 24px; --space-6: 32px;
+
+  --font-sans: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Consolas, monospace;
+
+  /* per-status accent — MUST match status.config.ts colors */
+  --st-received: #2F5FA8;
+  --st-processed: #27794C;
+  --st-failed: #B53535;
+  --st-dead_letter: #586170;
+}
+
+/* ===== Thème sombre — surcharge des mêmes variables ===== */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0E1621;
+  --surface: #16202C;
+  --surface-alt: #1B2734;
+  --surface-head: #131C27;
+  --border: #263441;
+  --border-soft: #1F2C39;
+  --ctl-border: #2E3D4B;
+  --row-hover: #1C2833;
+
+  --text: #E6ECF2;
+  --text-2: #C2CDD9;
+  --muted: #93A2B2;
+  --muted-2: #6F8092;
+  --faint: #556579;
+
+  --primary: #5B8FE0;
+  --primary-dark: #4A7ECB;
+  --primary-soft: #1E2F45;
+
+  --success: #4FB07A;
+  --success-soft: #16301F;
+  --danger: #E06B6B;
+  --danger-soft: #3A1E1E;
+  --warning: #D99248;
+  --warning-soft: #33260F;
+  --critical: #D46389;
+  --critical-soft: #331520;
+
+  --live-bg: #16301F;
+  --live-border: #21492F;
+  --live-text: #7FC79C;
+  --danger-border: #4A2626;
+  --critical-border: #40202C;
+
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, .3);
+  --shadow-pop: 0 12px 34px rgba(0, 0, 0, .55);
+}

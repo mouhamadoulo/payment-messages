@@ -25,6 +25,8 @@ ibm:
     password: passw0rd
     receive-timeout: 5000
     queue: PAYMENT.REQUEST.QUEUE
+    dlq-queue: PAYMENT.DLQ.QUEUE
+    max-retries: 3
 
 
 server:

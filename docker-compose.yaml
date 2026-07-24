@@ -45,6 +45,62 @@ services:
       - "9443:9443"
     volumes:
       - mq_data:/mnt/mqm
+      # Cree PAYMENT.REQUEST.QUEUE et PAYMENT.DLQ.QUEUE au demarrage du QM
+      - ./infra/mq/payment-queues.mqsc:/etc/mqm/payment-queues.mqsc:ro
+    healthcheck:
+      test: ["CMD-SHELL", "chkmqhealthy"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: payment-messages-backend:latest
+    container_name: payment-backend
+    restart: unless-stopped
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+      SERVER_PORT: 8080
+      DB_URL: jdbc:postgresql://postgres:5432/payment_messages
+      DB_USER: payment
+      DB_PASSWORD: payment
+      JPA_DDL_AUTO: update
+      MQ_QMGR: QM1
+      MQ_CHANNEL: DEV.APP.SVRCONN
+      MQ_CONN_NAME: ibm-mq(1414)
+      MQ_USER: app
+      MQ_PASSWORD: passw0rd
+      MQ_QUEUE: PAYMENT.REQUEST.QUEUE
+      MQ_DLQ_QUEUE: PAYMENT.DLQ.QUEUE
+      MQ_MAX_RETRIES: 3
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      ibm-mq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: payment-messages-frontend:latest
+    container_name: payment-frontend
+    restart: unless-stopped
+    ports:
+      - "4200:80"
+    depends_on:
+      - backend
 
 volumes:
   postgres_data:

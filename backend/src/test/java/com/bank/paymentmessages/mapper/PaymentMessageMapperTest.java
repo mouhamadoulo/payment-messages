@@ -45,7 +45,6 @@ class PaymentMessageMapperTest {
                 .status(PaymentMessageStatus.PROCESSED)
                 .payload(null)
                 .receivedAt(null)
-                .processedAt(null)
                 .build();
 
         PaymentMessageDto dto = PaymentMessageMapper.toDto(entity);
@@ -53,7 +52,6 @@ class PaymentMessageMapperTest {
         assertThat(dto.getId()).isEqualTo(2L);
         assertThat(dto.getPayload()).isNull();
         assertThat(dto.getReceivedAt()).isNull();
-        assertThat(dto.getProcessedAt()).isNull();
         assertThat(dto.getUpdatedAt()).isNull();
     }
 }

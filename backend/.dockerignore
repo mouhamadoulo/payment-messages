@@ -1,0 +1,8 @@
+target
+.git
+.idea
+.vscode
+*.log
+Dockerfile
+.dockerignore
+src/main/resources/application-dev.yaml

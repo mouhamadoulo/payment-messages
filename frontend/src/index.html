@@ -2,12 +2,35 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Frontend</title>
+  <title>Payment Messages</title>
   <base href="/">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="icon" type="image/x-icon" href="favicon.ico">
 </head>
 <body>
-  <app-root></app-root>
+  <app-root>
+    <!-- Splash affiché tant qu'Angular n'a pas bootstrappé ; remplacé au rendu de l'app -->
+    <div class="app-boot" role="status" aria-label="Chargement de l'application">
+      <div class="app-boot__logo">MQ</div>
+      <div class="app-boot__spin"></div>
+    </div>
+  </app-root>
+  <style>
+    .app-boot { position: fixed; inset: 0; display: flex; flex-direction: column;
+      align-items: center; justify-content: center; gap: 20px; background: #F4F6F8; }
+    .app-boot__logo { width: 46px; height: 46px; border-radius: 12px; background: #2B5FB0;
+      color: #fff; font: 700 15px/46px 'IBM Plex Mono', monospace; text-align: center;
+      letter-spacing: .5px; }
+    .app-boot__spin { width: 26px; height: 26px; border-radius: 50%;
+      border: 3px solid rgba(43,95,176,.22); border-top-color: #2B5FB0;
+      animation: app-boot-spin .7s linear infinite; }
+    @keyframes app-boot-spin { to { transform: rotate(360deg); } }
+    @media (prefers-color-scheme: dark) { .app-boot { background: #0E1621; } }
+    :root[data-theme="dark"] .app-boot { background: #0E1621; }
+    :root[data-theme="light"] .app-boot { background: #F4F6F8; }
+  </style>
 </body>
 </html>

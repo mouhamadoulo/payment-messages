@@ -1,1 +1,59 @@
-/* You can add global styles to this file, and also import other style files */
+@use '@angular/material' as mat;
+@use './styles/tokens';
+
+html {
+  @include mat.theme((
+    color: (
+      primary: mat.$blue-palette,
+      tertiary: mat.$azure-palette,
+    ),
+    typography: 'IBM Plex Sans',
+    density: 0,
+  ));
+  --mat-sys-primary: #2B5FB0;
+}
+
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: var(--font-sans);
+  color: var(--text);
+  background: var(--bg);
+  -webkit-font-smoothing: antialiased;
+}
+
+* { box-sizing: border-box; }
+
+a { color: var(--primary); text-decoration: none; }
+a:hover { color: var(--primary-dark); }
+
+input, select, textarea, button { font-family: inherit; }
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid rgba(43, 95, 176, .35);
+  outline-offset: 0;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: var(--ctl-border);
+  border-radius: 6px;
+  border: 2px solid var(--bg);
+}
+
+/* --- skeleton loaders --- */
+.skeleton { position: relative; overflow: hidden; background: var(--border-soft);
+  border-radius: 6px; }
+.skeleton::after { content: ''; position: absolute; inset: 0;
+  background: linear-gradient(90deg, transparent, var(--surface), transparent);
+  opacity: .55; transform: translateX(-100%); animation: mq-shimmer 1.3s infinite; }
+:root[data-theme="dark"] .skeleton::after { opacity: .18; }
+@keyframes mq-shimmer { 100% { transform: translateX(100%); } }
+@media (prefers-reduced-motion: reduce) { .skeleton::after { animation: none; } }
+
+@keyframes mq-pulse { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: .4; transform: scale(.82); } }
+@keyframes mq-slide { from { transform: translateX(30px); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes mq-up { from { transform: translateY(10px); opacity: 0; } to { transform: none; opacity: 1; } }
+
+.snackbar-success .mdc-snackbar__surface { background: var(--success) !important; }
+.snackbar-error   .mdc-snackbar__surface { background: var(--danger)  !important; }

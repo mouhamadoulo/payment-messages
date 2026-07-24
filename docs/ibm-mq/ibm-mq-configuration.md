@@ -31,9 +31,16 @@ ibm:
     password: ${MQ_PASSWORD}
     receive-timeout: 5000
     queue: ${MQ_QUEUE}
+    dlq-queue: ${MQ_DLQ_QUEUE}
+    max-retries: ${MQ_MAX_RETRIES}
 ```
 
 Toutes les valeurs sont externalisées via variables d'environnement pour la sécurité.
+
+`dlq-queue` est la Dead Letter Queue applicative : quand un message dépasse `max-retries` rejeux,
+`mq/DeadLetterPublisher` y republie le payload brut (avec les propriétés JMS `originalMessageId`,
+`reference`, `retryCount`, `errorMessage`) et le statut passe à `DEAD_LETTER`.
+Les deux files sont créées au démarrage du conteneur MQ par `infra/mq/payment-queues.mqsc`.
 
 ### 3.2 Configuration exemple (application-dev.example.yaml)
 
