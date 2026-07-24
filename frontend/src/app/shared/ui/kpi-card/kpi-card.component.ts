@@ -17,14 +17,14 @@ import { Component, input } from '@angular/core';
   `,
   styles: [`
     .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-card);
-            padding: 15px 17px; display: flex; flex-direction: column; gap: 7px; height: 100%; }
-    .label { font-size: .69rem; color: var(--muted-2); font-weight: 600; letter-spacing: .03em;
-             text-transform: uppercase; }
-    .row { display: flex; align-items: baseline; gap: 5px; }
-    .value { font-size: 1.69rem; font-weight: 600; font-family: var(--font-mono); color: var(--text);
+            padding: 12px 13px; display: flex; flex-direction: column; gap: 5px; height: 100%; min-width: 0; }
+    .label { font-size: .64rem; color: var(--muted-2); font-weight: 600; letter-spacing: .03em;
+             text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .row { display: flex; align-items: baseline; gap: 4px; }
+    .value { font-size: 1.32rem; font-weight: 600; font-family: var(--font-mono); color: var(--text);
              letter-spacing: -.02em; }
-    .unit { font-size: .78rem; color: var(--muted-2); }
-    .note { font-size: .75rem; font-weight: 600; }
+    .unit { font-size: .72rem; color: var(--muted-2); }
+    .note { font-size: .7rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .hint { color: var(--faint); font-weight: 400; }
   `]
 })

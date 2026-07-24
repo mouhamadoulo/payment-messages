@@ -18,11 +18,11 @@ import { SidebarComponent } from '../sidebar/sidebar.component';
     </div>
   `,
   styles: [`
-    .shell { display: grid; grid-template-columns: 246px 1fr; height: 100dvh; overflow: hidden;
-             background: var(--bg); }
+    .shell { display: grid; grid-template-columns: 246px 1fr; grid-template-rows: 100dvh;
+             height: 100dvh; overflow: hidden; background: var(--bg); }
     .rail { background: var(--surface); border-right: 1px solid var(--border); overflow-y: auto; }
-    .col { display: flex; flex-direction: column; min-width: 0; }
-    .content { flex: 1; overflow-y: auto; padding: 24px 28px; background: var(--bg); }
+    .col { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+    .content { flex: 1; min-height: 0; overflow-y: auto; padding: 24px 28px; background: var(--bg); }
     .scrim { display: none; }
     @media (max-width: 900px) {
       .shell { grid-template-columns: 1fr; }

@@ -50,19 +50,34 @@ const SAMPLE_SIZE = 200;
           }
         </div>
 
-        <div class="card">
-          <div class="card-head"><h3>Répartition par statut</h3></div>
-          <div class="stack">
-            @for (s of statusDist(); track s.label) {
-              <div>
-                <div class="line">
-                  <span class="mono" [style.color]="s.color">{{ s.label }}</span>
-                  <span class="mono muted">{{ s.count }}</span>
-                </div>
-                <div class="track"><div class="fill" [style.width.%]="s.pct" [style.background]="s.color"></div></div>
-              </div>
-            }
+        <div class="card donut-card">
+          <div class="card-head">
+            <h3>Répartition par statut</h3>
+            <span class="meta">{{ fmt(total()) }} messages</span>
           </div>
+          @if (total()) {
+            <div class="donut-wrap">
+              <div class="donut" [style.background]="donutGradient()" role="img"
+                   aria-label="Répartition circulaire des messages par statut">
+                <div class="donut-hole">
+                  <span class="donut-total mono">{{ fmt(total()) }}</span>
+                  <span class="donut-cap">total</span>
+                </div>
+              </div>
+              <ul class="legend">
+                @for (s of donutSegments(); track s.label) {
+                  <li>
+                    <span class="dot" [style.background]="s.color"></span>
+                    <span class="leg-label">{{ s.title }}</span>
+                    <span class="leg-count mono">{{ fmt(s.count) }}</span>
+                    <span class="leg-pct mono muted">{{ pct(s.share) }} %</span>
+                  </li>
+                }
+              </ul>
+            </div>
+          } @else {
+            <p class="empty">Aucun message à représenter</p>
+          }
         </div>
       </section>
 
@@ -132,7 +147,7 @@ const SAMPLE_SIZE = 200;
     .page { display: flex; flex-direction: column; gap: 18px; }
     @media (prefers-reduced-motion: no-preference) { .page { animation: mq-up .3s ease; } }
 
-    .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 14px; }
+    .kpis { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
     .grid { display: grid; gap: 18px; }
     .grid.main { grid-template-columns: 1.85fr 1fr; }
     .grid.split { grid-template-columns: 1.15fr 1fr; }
@@ -154,11 +169,24 @@ const SAMPLE_SIZE = 200;
     .axis { display: flex; justify-content: space-between; margin-top: 8px;
             font-size: .69rem; color: var(--faint); font-family: var(--font-mono); }
 
-    .stack { display: flex; flex-direction: column; gap: 11px; }
-    .line { display: flex; justify-content: space-between; margin-bottom: 4px; font-size: .72rem; font-weight: 600; }
     .track { height: 6px; background: var(--border-soft); border-radius: 4px; overflow: hidden; }
     .fill { height: 100%; border-radius: 4px; }
     .fill.grad { background: linear-gradient(90deg, #4A86D8, #2B5FB0); }
+
+    .donut-wrap { display: flex; align-items: center; gap: 22px; flex-wrap: wrap; }
+    .donut { width: 148px; height: 148px; border-radius: 50%; flex: none;
+             display: grid; place-items: center; }
+    .donut-hole { width: 62%; height: 62%; border-radius: 50%; background: var(--surface);
+                  display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .donut-total { font-size: 1.35rem; font-weight: 700; color: var(--text); }
+    .donut-cap { font-size: .64rem; text-transform: uppercase; color: var(--muted-2); }
+    .legend { list-style: none; margin: 0; padding: 0; flex: 1; min-width: 160px;
+              display: flex; flex-direction: column; gap: 10px; }
+    .legend li { display: flex; align-items: center; gap: 10px; font-size: .8rem; }
+    .dot { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+    .leg-label { flex: 1; color: var(--text-2); }
+    .leg-count { font-weight: 600; color: var(--text); }
+    .leg-pct { width: 56px; text-align: right; }
 
     .rows { display: flex; flex-direction: column; gap: 13px; }
     .row { display: flex; align-items: center; gap: 12px; }
@@ -189,11 +217,10 @@ const SAMPLE_SIZE = 200;
                  text-overflow: ellipsis; white-space: nowrap; }
     .alert-time { font-size: .72rem; color: var(--muted-2); flex: none; }
 
-    @media (max-width: 1400px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
     @media (max-width: 1100px) {
       .grid.main, .grid.split { grid-template-columns: 1fr; }
     }
-    @media (max-width: 700px) {
+    @media (max-width: 640px) {
       .kpis { grid-template-columns: repeat(2, 1fr); }
       .tiles { grid-template-columns: repeat(2, 1fr); }
       .row-label { width: 100px; }
@@ -234,13 +261,26 @@ export class DashboardPage implements OnInit {
     return buckets.map((count, hour) => ({ hour, count, pct: Math.max(3, (count / max) * 100) }));
   });
 
-  protected readonly statusDist = computed(() => {
-    const max = Math.max(1, ...STATUS_ORDER.map((s) => this.count(s)));
+  protected pct(n: number) { return n.toFixed(1).replace('.', ','); }
+
+  protected readonly donutSegments = computed(() => {
+    const total = this.total();
+    let acc = 0;
     return STATUS_ORDER.map((s) => {
       const meta = statusMeta(s);
       const count = this.count(s);
-      return { label: meta.label, color: meta.color, count, pct: (count / max) * 100 };
-    });
+      const share = total ? (count / total) * 100 : 0;
+      const seg = { title: meta.title, label: meta.label, color: meta.color, count, share, start: acc, end: acc + share };
+      acc += share;
+      return seg;
+    }).filter((s) => s.count > 0);
+  });
+
+  protected readonly donutGradient = computed(() => {
+    const segs = this.donutSegments();
+    if (!segs.length) return 'var(--border-soft)';
+    const stops = segs.map((s) => `${s.color} ${s.start}% ${s.end}%`).join(', ');
+    return `conic-gradient(${stops})`;
   });
 
   protected readonly typeDist = computed(() => {
@@ -280,8 +320,8 @@ export class DashboardPage implements OnInit {
       id: m.id,
       level: dead ? 'CRITIQUE' : 'ERREUR',
       color: dead ? 'var(--critical)' : 'var(--danger)',
-      bg: dead ? 'var(--critical-soft)' : '#FCF1F1',
-      border: dead ? '#F2DDE4' : '#F3DEDE',
+      bg: dead ? 'var(--critical-soft)' : 'var(--danger-soft)',
+      border: dead ? 'var(--critical-border)' : 'var(--danger-border)',
       message: m.errorMessage
         ?? `${m.reference} — ${dead ? 'routé vers la Dead Letter Queue' : 'en échec de traitement'}`,
       time: relativeTime(m.updatedAt ?? m.receivedAt, now),

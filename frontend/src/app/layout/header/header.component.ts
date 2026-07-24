@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { filter, startWith } from 'rxjs';
 import { MessageService } from '../../features/messages/services/message.service';
+import { ThemeService } from '../../core/services/theme.service';
 import { IconComponent } from '../../shared/ui/icon/icon.component';
 
 @Component({
@@ -26,6 +27,11 @@ import { IconComponent } from '../../shared/ui/icon/icon.component';
           <span class="live-label">Données</span>
           <span class="live-time">{{ updatedAt() }}</span>
         </div>
+        <button class="icon-btn" (click)="theme.toggle()"
+                [title]="isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
+                [attr.aria-label]="isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'">
+          <app-icon [name]="isDark() ? 'sun' : 'moon'" [size]="17" />
+        </button>
         <button class="icon-btn" (click)="refresh()" title="Actualiser" aria-label="Actualiser">
           <app-icon name="refresh" [size]="17" />
         </button>
@@ -43,13 +49,13 @@ import { IconComponent } from '../../shared/ui/icon/icon.component';
     .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
 
     .live { display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: var(--radius-pill);
-            background: #F0F7F2; border: 1px solid #D9ECDF; }
+            background: var(--live-bg); border: 1px solid var(--live-border); }
     .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
     .live-label { font-size: .75rem; font-weight: 600; color: var(--success); }
-    .live-time { font-size: .75rem; color: #5F8A70; font-family: var(--font-mono); }
+    .live-time { font-size: .75rem; color: var(--live-text); font-family: var(--font-mono); }
 
     .icon-btn { width: 38px; height: 38px; flex: none; border-radius: var(--radius-ctl);
-                border: 1px solid #D3DAE2; background: var(--surface); color: var(--muted);
+                border: 1px solid var(--ctl-border); background: var(--surface); color: var(--muted);
                 cursor: pointer; display: grid; place-items: center; }
     .icon-btn:hover { background: var(--bg); color: var(--primary); }
     .hamburger { display: none; }
@@ -65,8 +71,11 @@ import { IconComponent } from '../../shared/ui/icon/icon.component';
 export class HeaderComponent {
   readonly toggleMenu = output<void>();
   protected readonly svc = inject(MessageService);
+  protected readonly theme = inject(ThemeService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
+
+  protected readonly isDark = computed(() => this.theme.theme() === 'dark');
 
   protected readonly title = signal('Payment Messages');
   protected readonly subtitle = signal('');

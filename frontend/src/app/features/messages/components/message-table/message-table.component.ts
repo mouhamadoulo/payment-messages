@@ -90,7 +90,7 @@ const COLUMNS: Column[] = [
     .scroll { overflow-x: auto; }
     table { width: 100%; border-collapse: collapse; }
 
-    th { text-align: left; padding: 13px 16px; font-size: .655rem; font-weight: 700; letter-spacing: .05em;
+    th { text-align: left; padding: 12px 13px; font-size: .655rem; font-weight: 700; letter-spacing: .05em;
          text-transform: uppercase; color: var(--muted-2); border-bottom: 1px solid var(--border);
          white-space: nowrap; background: var(--surface-head); user-select: none; }
     th.sortable { cursor: pointer; }
@@ -99,18 +99,26 @@ const COLUMNS: Column[] = [
     th.right, td.right { text-align: right; }
     .arrow { color: var(--primary); }
 
-    td { padding: 12px 16px; font-size: .8rem; border-bottom: 1px solid #F0F3F6;
+    td { padding: 11px 13px; font-size: .8rem; border-bottom: 1px solid var(--border-soft);
          color: var(--text-2); white-space: nowrap; }
     tbody tr { cursor: pointer; }
-    tbody tr:hover { background: #F5F8FC; }
+    tbody tr:hover { background: var(--row-hover); }
     tbody tr.selected { background: var(--primary-soft); }
     .mono { font-family: var(--font-mono); }
     .muted { color: var(--muted); }
     .faint { color: var(--faint); font-size: .72rem; margin-left: 6px; }
     .warn { color: var(--warning); font-weight: 600; }
     .link-like { color: var(--primary); font-weight: 500; }
-    .ellipsis { max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+    .ellipsis { max-width: 150px; overflow: hidden; text-overflow: ellipsis; }
     .open { font-size: .75rem; font-weight: 600; }
+
+    /* colonne action figée à droite : "Détail" reste visible sans scroll horizontal */
+    th:last-child, td.right:last-child { position: sticky; right: 0; z-index: 1;
+         box-shadow: -8px 0 8px -8px rgba(20, 32, 45, .12); }
+    th:last-child { background: var(--surface-head); }
+    td.right:last-child { background: var(--surface); }
+    tbody tr:hover td.right:last-child { background: var(--row-hover); }
+    tbody tr.selected td.right:last-child { background: var(--primary-soft); }
 
     .footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
               padding: 13px 18px; border-top: 1px solid var(--border-soft); background: var(--surface-head);
@@ -118,9 +126,9 @@ const COLUMNS: Column[] = [
     .range { font-size: .78rem; color: var(--muted-2); }
     .pager { display: flex; align-items: center; gap: 10px; }
     .size { font-size: .75rem; color: var(--muted-2); display: flex; align-items: center; gap: 6px; }
-    .size select { border: 1px solid #D3DAE2; border-radius: 8px; padding: 4px 6px;
-                   font-size: .75rem; font-family: var(--font-mono); background: var(--surface); }
-    .nav { width: 32px; height: 32px; border-radius: 8px; border: 1px solid #D3DAE2; background: var(--surface);
+    .size select { border: 1px solid var(--ctl-border); border-radius: 8px; padding: 4px 6px;
+                   font-size: .75rem; font-family: var(--font-mono); background: var(--surface); color: var(--text); }
+    .nav { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--ctl-border); background: var(--surface);
            color: var(--muted); cursor: pointer; display: grid; place-items: center; }
     .nav:hover:not(:disabled) { background: var(--bg); color: var(--primary); }
     .nav:disabled { opacity: .4; cursor: not-allowed; }

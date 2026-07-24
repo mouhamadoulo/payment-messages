@@ -71,7 +71,7 @@ import { formatAmount, formatBytes, parsePayload, payloadSize } from '../../../.
 
     .btn { display: inline-flex; align-items: center; gap: 7px; border-radius: var(--radius-ctl);
            padding: 9px 14px; font-weight: 600; font-size: .81rem; cursor: pointer;
-           border: 1px solid #D3DAE2; background: var(--surface); color: var(--text-2); }
+           border: 1px solid var(--ctl-border); background: var(--surface); color: var(--text-2); }
     .btn:hover:not(:disabled) { background: var(--bg); }
     .btn.primary { background: var(--primary); color: #fff; border-color: var(--primary); }
     .btn.primary:hover:not(:disabled) { filter: brightness(1.07); background: var(--primary); }

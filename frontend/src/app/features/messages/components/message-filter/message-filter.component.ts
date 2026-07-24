@@ -59,22 +59,22 @@ import { IconComponent } from '../../../../shared/ui/icon/icon.component';
 
     .search { position: relative; flex: 1; min-width: 240px; display: flex; align-items: center; }
     .search app-icon { position: absolute; left: 12px; color: var(--faint); pointer-events: none; }
-    .search input { width: 100%; padding: 10px 12px 10px 36px; border: 1px solid #D3DAE2;
+    .search input { width: 100%; padding: 10px 12px 10px 36px; border: 1px solid var(--ctl-border);
                     border-radius: var(--radius-ctl); font-size: .84rem; color: var(--text);
                     background: var(--surface-head); }
 
-    .select { padding: 10px 12px; border: 1px solid #D3DAE2; border-radius: var(--radius-ctl);
+    .select { padding: 10px 12px; border: 1px solid var(--ctl-border); border-radius: var(--radius-ctl);
               font-size: .81rem; color: var(--text-2); background: var(--surface); cursor: pointer;
               font-family: var(--font-mono); }
     .date { display: flex; align-items: center; gap: var(--space-2); font-size: .78rem; color: var(--muted-2); }
-    .date input { border: 1px solid #D3DAE2; border-radius: var(--radius-ctl); padding: 9px 12px;
+    .date input { border: 1px solid var(--ctl-border); border-radius: var(--radius-ctl); padding: 9px 12px;
                   font-size: .81rem; color: var(--text); background: var(--surface); }
 
-    .btn { display: flex; align-items: center; gap: 7px; padding: 9px 14px; border: 1px solid #D3DAE2;
+    .btn { display: flex; align-items: center; gap: 7px; padding: 9px 14px; border: 1px solid var(--ctl-border);
            border-radius: var(--radius-ctl); background: var(--surface); color: var(--text-2);
            font-size: .81rem; font-weight: 500; cursor: pointer; }
     .btn:hover { background: var(--bg); color: var(--primary); }
-    .icon-btn { width: 38px; height: 38px; flex: none; border: 1px solid #D3DAE2;
+    .icon-btn { width: 38px; height: 38px; flex: none; border: 1px solid var(--ctl-border);
                 border-radius: var(--radius-ctl); background: var(--surface); color: var(--muted);
                 cursor: pointer; display: grid; place-items: center; }
     .icon-btn:hover { background: var(--bg); color: var(--danger); }

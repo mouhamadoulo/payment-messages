@@ -65,7 +65,7 @@ import { relativeTime } from '../../shared/util/payload.util';
     .item { display: flex; align-items: center; gap: 11px; padding: 10px 12px; border-radius: var(--radius-ctl);
             font-size: .875rem; font-weight: 500; cursor: pointer; border-left: 3px solid transparent;
             color: var(--muted); text-decoration: none; }
-    .item:hover { background: #F0F4F9; color: var(--text-2); }
+    .item:hover { background: var(--row-hover); color: var(--text-2); }
     .item.active { background: var(--primary-soft); color: var(--primary-dark); border-left-color: var(--primary); }
     .item.disabled { color: var(--faint); cursor: not-allowed; }
     .item.disabled:hover { background: transparent; color: var(--faint); }

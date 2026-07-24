@@ -2,7 +2,8 @@ import { Component, input } from '@angular/core';
 
 export type IconName =
   | 'dashboard' | 'messages' | 'play' | 'refresh' | 'search' | 'download'
-  | 'chevron-left' | 'chevron-right' | 'close' | 'copy' | 'replay' | 'menu' | 'trash' | 'tune';
+  | 'chevron-left' | 'chevron-right' | 'close' | 'copy' | 'replay' | 'menu' | 'trash' | 'tune'
+  | 'sun' | 'moon';
 
 /**
  * Jeu d'icônes inline (SVG stroke, currentColor) — évite une dépendance à une
@@ -72,6 +73,15 @@ export type IconName =
           <line x1="3" y1="5" x2="15" y2="5" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
           <line x1="3" y1="9" x2="15" y2="9" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
           <line x1="3" y1="13" x2="15" y2="13" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+        }
+        @case ('sun') {
+          <circle cx="9" cy="9" r="3.4" stroke="currentColor" stroke-width="1.6"/>
+          <path d="M9 1.5v2M9 14.5v2M1.5 9h2M14.5 9h2M3.7 3.7l1.4 1.4M12.9 12.9l1.4 1.4M14.3 3.7l-1.4 1.4M5.1 12.9l-1.4 1.4"
+                stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        }
+        @case ('moon') {
+          <path d="M15 10.5A6.2 6.2 0 0 1 7.5 3a6.2 6.2 0 1 0 7.5 7.5z"
+                stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
         }
       }
     </svg>

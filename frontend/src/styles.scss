@@ -36,7 +36,7 @@ input:focus, select:focus, textarea:focus {
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: #D3DAE2;
+  background: var(--ctl-border);
   border-radius: 6px;
   border: 2px solid var(--bg);
 }

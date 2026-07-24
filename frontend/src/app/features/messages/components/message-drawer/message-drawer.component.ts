@@ -104,7 +104,7 @@ import { formatAmount, formatBytes, parsePayload, payloadSize } from '../../../.
     .foot { flex: none; padding: 16px 24px; border-top: 1px solid var(--border-soft);
             display: flex; gap: 11px; flex-wrap: wrap; }
     .btn { display: inline-flex; align-items: center; justify-content: center; gap: 8px; padding: 11px 14px;
-           border: 1px solid #D3DAE2; border-radius: var(--radius-ctl); background: var(--surface);
+           border: 1px solid var(--ctl-border); border-radius: var(--radius-ctl); background: var(--surface);
            color: var(--text-2); font-size: .81rem; font-weight: 600; cursor: pointer; }
     .btn:hover:not(:disabled) { background: var(--bg); }
     .btn.primary { flex: 1; border: 0; background: var(--primary); color: #fff; }
