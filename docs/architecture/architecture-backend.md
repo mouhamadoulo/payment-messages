@@ -29,6 +29,10 @@ Le backend est une application **Spring Boot 4.1.0** en **Java 21**. Il assure :
 | Spring Boot Actuator | - | Métriques et santé |
 | Flyway | - | Migrations de schéma (`db/migration`) |
 | Caffeine | - | Cache court des statistiques |
+| Spring Security | - | API fermée, jetons JWT (HMAC-SHA256) |
+| OAuth2 Resource Server | - | Vérification des jetons portés par `Authorization: Bearer` |
+| Micrometer + Prometheus | - | Métriques métier (`/actuator/prometheus`) |
+| Micrometer Tracing (OTel) | - | `traceId`/`spanId` dans les logs |
 
 ---
 
@@ -41,14 +45,24 @@ com.bank.paymentmessages
 │   ├── JacksonConfig.java              # Personnalisation du JsonMapper Boot
 │   ├── JmsConfig.java                  # Factory de listeners + ErrorHandler
 │   ├── CacheConfig.java                # @EnableCaching (cache messageStats)
-│   └── BatchRetryExecutorConfig.java   # Exécuteur dédié au rejeu massif
+│   ├── BatchRetryExecutorConfig.java   # Exécuteur dédié au rejeu massif
+│   ├── SecurityConfig.java             # Chaîne de filtres, JWT, rôles, CORS
+│   ├── SecurityProperties.java         # app.security.* (secret, comptes, origines)
+│   ├── MetricsConfig.java              # Jauges métier (pending, failed, dead letter)
+│   ├── HttpCacheConfig.java            # Filtre ETag sur les lectures de messages
+│   └── OpenApiConfig.java              # Schéma de sécurité exposé à Swagger UI
 ├── controller/
-│   └── PaymentMessageController.java   # Endpoints REST
+│   ├── PaymentMessageController.java   # Endpoints REST
+│   ├── AuthController.java             # POST /auth/login (émission du jeton)
+│   └── ConfigController.java           # Configuration MQ non sensible pour l'IHM
 ├── dto/
 │   ├── api/
 │   │   ├── PaymentMessageDto.java          # DTO de détail (payload inclus)
 │   │   ├── PaymentMessageSummaryDto.java   # DTO de liste (sans payload)
-│   │   └── CursorPageDto.java              # Page paginée par curseur
+│   │   ├── CursorPageDto.java              # Page paginée par curseur
+│   │   ├── UpdateStatusRequest.java        # Corps de PUT /{id}/status ({status, reason})
+│   │   ├── LoginRequest.java               # Identifiants de connexion
+│   │   └── LoginResponse.java              # Jeton émis + rôles
 │   └── mq/
 │       ├── PaymentMessageEvent.java    # DTO entrant (MQ)
 │       ├── Payment.java                # Détails du paiement
@@ -59,7 +73,8 @@ com.bank.paymentmessages
 │   └── PaymentMessageStatus.java       # Enum des statuts
 ├── exception/
 │   ├── PaymentMessageNotFoundException.java
-│   └── GlobalExceptionHandler.java     # Handler global (@ControllerAdvice)
+│   ├── InvalidStatusTransitionException.java  # Transition refusée par la machine à états
+│   └── GlobalExceptionHandler.java     # ProblemDetail (RFC 9457), étend ResponseEntityExceptionHandler
 ├── mapper/
 │   └── PaymentMessageMapper.java       # Mapping Entity <-> DTO
 ├── mq/
@@ -71,12 +86,15 @@ com.bank.paymentmessages
 ├── repository/
 │   ├── PaymentMessageRepository.java   # Repository JPA
 │   └── PaymentMessageSummary.java      # Projection de liste (sans payload)
-└── service/
-    ├── PaymentMessageService.java      # Logique métier
-    ├── BatchRetryService.java          # Rejeu massif par lots, en tâche de fond
-    ├── BatchRetryTask.java             # État d'un rejeu massif
-    ├── Cursor.java                     # Curseur de pagination keyset
-    └── MessageRetentionJob.java        # Purge planifiée des PROCESSED
+├── service/
+│   ├── PaymentMessageService.java      # Logique métier
+│   ├── BatchRetryService.java          # Rejeu massif par lots, en tâche de fond
+│   ├── BatchRetryTask.java             # État d'un rejeu massif
+│   ├── Cursor.java                     # Curseur de pagination keyset
+│   ├── TokenService.java               # Émission des jetons JWT
+│   └── MessageRetentionJob.java        # Purge planifiée des PROCESSED
+└── web/
+    └── CorrelationIdFilter.java        # X-Request-Id + MDC sur chaque requête
 ```
 
 ---
@@ -201,23 +219,71 @@ Classe utilitaire (constructeur privé) :
 
 ### 5.6 Exception Handler (`GlobalExceptionHandler`)
 
+La classe étend `ResponseEntityExceptionHandler` : les exceptions déjà qualifiées par Spring
+(corps illisible, paramètre manquant, méthode non supportée) gardent leur statut d'origine au
+lieu d'être dégradées en 500 par un fourre-tout.
+
 | Exception | Statut HTTP |
 |---|---|
 | `PaymentMessageNotFoundException` | `404 NOT FOUND` |
 | `IllegalArgumentException` | `400 BAD REQUEST` |
+| `MethodArgumentNotValidException` | `400 BAD REQUEST` + `errors` par champ |
+| `AuthenticationException` | `401 UNAUTHORIZED` (motif jamais détaillé) |
+| `AccessDeniedException` | `403 FORBIDDEN` |
 | `OptimisticLockingFailureException` | `409 CONFLICT` (modification concurrente) |
-| `Exception` (catch-all) | `500 INTERNAL SERVER ERROR` |
+| `InvalidStatusTransitionException` | `422 UNPROCESSABLE ENTITY` + `from`/`to`/`allowedTransitions` |
+| `Exception` (catch-all) | `500 INTERNAL SERVER ERROR`, message générique + `correlationId` |
 
-Toutes les réponses d'erreur suivent le format :
+Format `application/problem+json` (RFC 9457) :
 
 ```json
 {
+  "type": "urn:payment-messages:not-found",
+  "title": "Ressource inexistante",
   "status": 404,
-  "error": "Not Found",
-  "message": "Message introuvable avec l'id : 42",
-  "timestamp": "2025-01-15T10:30:00.000+00:00"
+  "detail": "Message introuvable avec l'id : 42",
+  "instance": "/api/v1/messages/42",
+  "timestamp": "2026-07-25T10:30:00+02:00",
+  "correlationId": "8f2c1e2a-6b41-4a0e-9a55-1d0e6b3c7a12"
 }
 ```
+
+Les refus produits par la chaîne de filtres (401/403) n'atteignent pas ce handler : ils sont
+formatés à l'identique par `SecurityConfig`.
+
+### 5.7 Sécurité (`SecurityConfig`)
+
+L'API est fermée : `/api/v1/**` exige un jeton, sauf `POST /api/v1/auth/login`. Le service
+signe et vérifie lui-même ses jetons (HMAC-SHA256, secret `app.security.jwt.secret`) ; passer
+à un fournisseur OAuth2 externe consisterait à remplacer le `JwtDecoder` par
+`NimbusJwtDecoder.withJwkSetUri(...)` et à retirer l'émission.
+
+- session **sans état**, donc sans cookie ni CSRF ;
+- rôles portés par la revendication `roles`, préfixés `ROLE_` à la vérification ;
+- `DELETE /{id}`, `PUT /{id}/status` et `POST /batch/retry-failed` exigent `ADMIN`, le reste
+  un simple compte authentifié ;
+- publics : `/actuator/health`, `/actuator/info`, et Swagger UI tant que
+  `app.security.public-docs` vaut `true` ;
+- comptes déclarés en configuration (`app.security.users[*]`), mot de passe préfixé par son
+  algorithme (`{bcrypt}`, `{noop}`) via un `DelegatingPasswordEncoder`.
+
+### 5.8 Observabilité (`MetricsConfig`, `CorrelationIdFilter`)
+
+| Métrique | Type | Sens |
+|---|---|---|
+| `payment.mq.messages.received` | compteur | messages persistés depuis la file |
+| `payment.mq.messages.rejected` | compteur | rejets définitifs (`FAILED`) |
+| `payment.mq.messages.duplicates` | compteur | redélivrances ignorées |
+| `payment.mq.listener.rollbacks` | compteur | échecs transitoires → redélivrance |
+| `payment.dlq.publish.failures` | compteur | publications DLQ en échec |
+| `payment.mq.processing` | chronomètre | durée de traitement, étiquetée par issue (`persisted`, `duplicate`, `rejected`, `error`) |
+| `payment.messages.pending` / `.failed` / `.dead.letter` | jauges | états courants, lus via l'agrégat mis en cache |
+
+Corrélation : `CorrelationIdFilter` publie un `requestId` dans le MDC et le renvoie en
+`X-Request-Id` ; le listener JMS publie `messageId`, `reference` et `jmsMessageId`. Les deux
+apparaissent dans chaque ligne de log (`logging.pattern.level`). Le bridge Micrometer Tracing
+ajoute `traceId`/`spanId` ; il suffit d'ajouter un exportateur OTLP pour émettre vers un
+collecteur.
 
 ---
 
@@ -245,6 +311,7 @@ Toutes les réponses d'erreur suivent le format :
 | `MQ_DLQ_QUEUE` | Dead Letter Queue applicative |
 | `MQ_MAX_RETRIES` | Nombre de rejeux avant `DEAD_LETTER` |
 | `SERVER_PORT` | Port du serveur |
+| `JWT_SECRET` | Secret de signature des jetons, **32 octets minimum** (refus au démarrage sinon) |
 
 Variables optionnelles :
 
@@ -263,10 +330,27 @@ Variables optionnelles :
 | `RETENTION_PROCESSED_DAYS` | `90` | Âge au-delà duquel un `PROCESSED` est purgeable |
 | `RETENTION_BATCH_SIZE` / `RETENTION_MAX_PER_RUN` | `500` / `50000` | Bornes de la purge |
 | `RETENTION_CRON` | `0 30 3 * * *` | Déclenchement de la purge |
+| `JWT_EXPIRATION` | `1h` | Durée de validité d'un jeton |
+| `JWT_ISSUER` | `payment-messages` | Émetteur inscrit dans le jeton |
+| `SECURITY_PUBLIC_DOCS` | `true` | Swagger UI et `/v3/api-docs` accessibles sans jeton |
+| `SECURITY_ALLOWED_ORIGINS` | `http://localhost:4200` | Origines CORS autorisées |
+| `MAX_PAGE_SIZE` | `200` | Borne haute de pagination |
+| `REQUEST_TIMEOUT` | `15s` | Délai maximal d'une requête asynchrone |
+| `CONNECTION_TIMEOUT` | `5s` | Délai d'établissement de connexion Tomcat |
+| `MANAGEMENT_PORT` | *(vide)* | Déplace l'actuator sur un port dédié — il quitte alors la chaîne de sécurité applicative |
+
+Les comptes ne sont pas pilotés par une variable simple : ils se déclarent en YAML
+(`app.security.users[*].username/password/roles`) ou par variables indexées
+(`APP_SECURITY_USERS_0_USERNAME`, `…_PASSWORD`, `…_ROLES_0`), cf. `docker-compose.yaml`.
 
 ### 6.3 Actuator
 
-Endpoints exposés : `health`, `info`, `metrics`, `env`
+Endpoints exposés : `health`, `info`, `metrics`, `prometheus`.
+
+`env` a été **retiré** : il révélait toute la configuration résolue, identifiants MQ et URL de
+base compris. Seuls `health` et `info` sont publics ; `metrics` et `prometheus` exigent un
+jeton. `MANAGEMENT_PORT` permet d'isoler ces endpoints sur un port dédié, qui sort alors de
+la chaîne de sécurité applicative et ne doit pas être exposé.
 
 ---
 
@@ -278,8 +362,13 @@ Endpoints exposés : `health`, `info`, `metrics`, `env`
 - **ServiceTest** : logique métier (mocks), idempotence, curseur, lots bornés
 - **BatchRetryServiceTest** : enchaînement des lots, plafond, échec
 - **DeadLetterDispatcherTest** : publication après commit et confirmation `dlqPublishedAt`
-- **ControllerTest** : endpoints REST (MockMvc)
-- **ListenerTest** : erreurs définitives / transitoires
+- **ControllerTest** : endpoints REST (MockMvc), autorisations par rôle, contrat de statut
+- **AuthControllerTest** : émission de jeton, refus d'identifiants
+- **SecurityConfigTest** : jeton réellement émis → accès accordé, rôles, jeton falsifié refusé
+- **MetricsConfigTest** : `/actuator/prometheus` exposé, authentifié, `env` absent
+- **HttpCacheAndCorrelationTest** : `ETag`/`304`, `X-Request-Id`
+- **PaymentMessageStatusTest** : machine à états (transitions, statuts terminaux)
+- **ListenerTest** : erreurs définitives / transitoires, chronomètre, purge du MDC
 - **MapperTest** : mapping Entity ↔ DTO, calcul de `payloadSize`
 
 Exécution :

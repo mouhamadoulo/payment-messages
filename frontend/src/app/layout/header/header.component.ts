@@ -3,6 +3,7 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { filter, startWith } from 'rxjs';
 import { MessageService } from '../../features/messages/services/message.service';
+import { AuthService } from '../../core/auth/auth.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { IconComponent } from '../../shared/ui/icon/icon.component';
 
@@ -35,6 +36,14 @@ import { IconComponent } from '../../shared/ui/icon/icon.component';
         <button class="icon-btn" (click)="refresh()" title="Actualiser" aria-label="Actualiser">
           <app-icon name="refresh" [size]="17" />
         </button>
+
+        <div class="account" [title]="'Rôles : ' + roles()">
+          <span class="who">{{ auth.username() }}</span>
+          <button class="icon-btn" (click)="auth.logout()" title="Se déconnecter"
+                  aria-label="Se déconnecter">
+            <app-icon name="logout" [size]="17" />
+          </button>
+        </div>
       </div>
     </header>
   `,
@@ -60,11 +69,17 @@ import { IconComponent } from '../../shared/ui/icon/icon.component';
     .icon-btn:hover { background: var(--bg); color: var(--primary); }
     .hamburger { display: none; }
 
+    .account { display: flex; align-items: center; gap: 10px; padding-left: 14px;
+               border-left: 1px solid var(--border); }
+    .who { font-size: .8rem; font-weight: 600; color: var(--muted); }
+
     @media (prefers-reduced-motion: no-preference) { .live .dot { animation: mq-pulse 1.8s infinite; } }
     @media (max-width: 900px) {
       .bar { padding: 0 var(--space-4); gap: var(--space-3); }
       .hamburger { display: grid; }
       .live { display: none; }
+      .account { padding-left: 0; border-left: none; }
+      .who { display: none; }
     }
   `]
 })
@@ -72,10 +87,12 @@ export class HeaderComponent {
   readonly toggleMenu = output<void>();
   protected readonly svc = inject(MessageService);
   protected readonly theme = inject(ThemeService);
+  protected readonly auth = inject(AuthService);
   private readonly router = inject(Router);
   private readonly route = inject(ActivatedRoute);
 
   protected readonly isDark = computed(() => this.theme.theme() === 'dark');
+  protected readonly roles = computed(() => this.auth.roles().join(', ') || '—');
 
   protected readonly title = signal('Payment Messages');
   protected readonly subtitle = signal('');

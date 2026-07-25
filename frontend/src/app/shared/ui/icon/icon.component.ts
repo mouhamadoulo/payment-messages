@@ -3,7 +3,7 @@ import { Component, input } from '@angular/core';
 export type IconName =
   | 'dashboard' | 'messages' | 'play' | 'refresh' | 'search' | 'download'
   | 'chevron-left' | 'chevron-right' | 'close' | 'copy' | 'replay' | 'menu' | 'trash' | 'tune'
-  | 'sun' | 'moon';
+  | 'sun' | 'moon' | 'logout';
 
 /**
  * Jeu d'icônes inline (SVG stroke, currentColor) — évite une dépendance à une
@@ -78,6 +78,12 @@ export type IconName =
           <circle cx="9" cy="9" r="3.4" stroke="currentColor" stroke-width="1.6"/>
           <path d="M9 1.5v2M9 14.5v2M1.5 9h2M14.5 9h2M3.7 3.7l1.4 1.4M12.9 12.9l1.4 1.4M14.3 3.7l-1.4 1.4M5.1 12.9l-1.4 1.4"
                 stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+        }
+        @case ('logout') {
+          <path d="M11 3H4.5A1.5 1.5 0 0 0 3 4.5v9A1.5 1.5 0 0 0 4.5 15H11"
+                stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M11.5 6l3 3-3 3M7.5 9h7" stroke="currentColor" stroke-width="1.6"
+                stroke-linecap="round" stroke-linejoin="round"/>
         }
         @case ('moon') {
           <path d="M15 10.5A6.2 6.2 0 0 1 7.5 3a6.2 6.2 0 1 0 7.5 7.5z"

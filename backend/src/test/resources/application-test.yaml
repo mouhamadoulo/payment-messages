@@ -34,5 +34,27 @@ ibm:
     dlq-recovery:
       enabled: false
 
+app:
+  security:
+    jwt:
+      secret: test-only-secret-0123456789-abcdefghij
+      expiration: 15m
+    users:
+      - username: admin
+        password: "{noop}admin"
+        roles: [ADMIN, USER]
+      - username: operator
+        password: "{noop}operator"
+        roles: [USER]
+  http-cache:
+    stats-ttl: 15s
+
 server:
   port: 0
+
+management:
+  health:
+    # Aucun broker ne tourne pendant `verify` : sans cette exclusion, /actuator/health
+    # répondrait DOWN pour une raison sans rapport avec ce qui est testé.
+    jms:
+      enabled: false

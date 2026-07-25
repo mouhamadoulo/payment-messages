@@ -3,6 +3,7 @@ package com.bank.paymentmessages.controller;
 import com.bank.paymentmessages.dto.api.CursorPageDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageSummaryDto;
+import com.bank.paymentmessages.dto.api.UpdateStatusRequest;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
 import com.bank.paymentmessages.service.BatchRetryService;
@@ -12,15 +13,23 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.CacheControl;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.Map;
 
@@ -29,14 +38,26 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/messages")
 @Tag(name = "Messages", description = "Gestion des messages MQ")
+@SecurityRequirement(name = "bearerAuth")
 public class PaymentMessageController {
+
+    /**
+     * Borne haute de la pagination par curseur, alignée sur
+     * {@code spring.data.web.pageable.max-page-size} : sans elle, {@code ?size=100000}
+     * était accepté tel quel.
+     */
+    private static final long MAX_PAGE_SIZE = 200;
 
     private final PaymentMessageService service;
     private final BatchRetryService batchRetryService;
+    private final Duration statsCacheTtl;
 
-    public PaymentMessageController(PaymentMessageService service, BatchRetryService batchRetryService){
+    public PaymentMessageController(PaymentMessageService service,
+                                    BatchRetryService batchRetryService,
+                                    @Value("${app.http-cache.stats-ttl}") Duration statsCacheTtl){
         this.service = service;
         this.batchRetryService = batchRetryService;
+        this.statsCacheTtl = statsCacheTtl;
     }
 
     @GetMapping
@@ -74,17 +95,29 @@ public class PaymentMessageController {
             @RequestParam(required = false) PaymentMessageStatus status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime receivedAfter,
             @Parameter(description = "Curseur rendu par l'appel précédent") @RequestParam(required = false) String cursor,
-            @RequestParam(defaultValue = "20") int size) {
+            @Parameter(description = "Taille de page, 200 au maximum")
+            @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_PAGE_SIZE) int size) {
         return service.searchByCursor(status, receivedAfter, cursor, size);
     }
 
+    /**
+     * L'agrégat est déjà mis en cache côté service ; un {@code Cache-Control} de même durée
+     * évite en plus l'aller-retour réseau, le front interrogeant {@code /stats} après chaque
+     * action unitaire. L'{@code ETag} posé par le filtre applicatif transforme un rappel
+     * inchangé en 304 sans corps.
+     */
     @GetMapping("/stats")
-    @Operation(summary = "Stats des messages par statut")
+    @Operation(summary = "Stats des messages par statut",
+            description = "Résultat mis en cache quelques secondes (cf. STATS_CACHE_TTL) et "
+                    + "servi avec un Cache-Control de même durée.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Statistiques calculées")
+            @ApiResponse(responseCode = "200", description = "Statistiques calculées"),
+            @ApiResponse(responseCode = "304", description = "Statistiques inchangées depuis l'ETag fourni")
     })
-    public Map<PaymentMessageStatus, Long> getStats() {
-        return service.getStats();
+    public ResponseEntity<Map<PaymentMessageStatus, Long>> getStats() {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(statsCacheTtl))
+                .body(service.getStats());
     }
 
     @GetMapping("/{id}")
@@ -102,9 +135,10 @@ public class PaymentMessageController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Supprime un message")
+    @Operation(summary = "Supprime un message", description = "Réservé au rôle ADMIN.")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Message supprimé"),
+            @ApiResponse(responseCode = "403", description = "Rôle ADMIN requis"),
             @ApiResponse(responseCode = "404", description = "Message inexistant")
     })
     public void deleteById(@Parameter(description = "Identifiant du message") @PathVariable Long id) {
@@ -118,9 +152,10 @@ public class PaymentMessageController {
                     + "taskId à suivre via GET /batch/retry-failed/{taskId}. Chaque message voit son "
                     + "retryCount incrémenté et repasse en RECEIVED ; au-delà du seuil ibm.mq.max-retries, "
                     + "il part en DEAD_LETTER et son payload est republié sur la Dead Letter Queue. "
-                    + "Un seul rejeu massif peut être en cours à la fois.")
+                    + "Un seul rejeu massif peut être en cours à la fois. Réservé au rôle ADMIN.")
     @ApiResponses({
-            @ApiResponse(responseCode = "202", description = "Rejeu massif accepté")
+            @ApiResponse(responseCode = "202", description = "Rejeu massif accepté"),
+            @ApiResponse(responseCode = "403", description = "Rôle ADMIN requis")
     })
     public BatchRetryTask batchRetryFailed() {
         return batchRetryService.start();
@@ -153,15 +188,23 @@ public class PaymentMessageController {
     }
 
     @PutMapping("/{id}/status")
-    @Operation(summary = "Change le statut d'un message")
+    @Operation(summary = "Change le statut d'un message",
+            description = "La transition doit être autorisée par la machine à états : "
+                    + "RECEIVED → PROCESSED | FAILED, FAILED → RECEIVED | PROCESSED | DEAD_LETTER. "
+                    + "PROCESSED et DEAD_LETTER sont terminaux. Un statut identique à l'actuel est "
+                    + "accepté sans effet. Réservé au rôle ADMIN.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Statut mis à jour"),
-            @ApiResponse(responseCode = "404", description = "Message inexistant")
+            @ApiResponse(responseCode = "400", description = "Corps de requête invalide"),
+            @ApiResponse(responseCode = "403", description = "Rôle ADMIN requis"),
+            @ApiResponse(responseCode = "404", description = "Message inexistant"),
+            @ApiResponse(responseCode = "409", description = "Message modifié entre-temps"),
+            @ApiResponse(responseCode = "422", description = "Transition de statut interdite")
     })
     public PaymentMessageDto updateStatus(
             @Parameter(description = "Identifiant du message") @PathVariable Long id,
-            @RequestBody PaymentMessageStatus status) {
-        return service.updateStatus(id, status);
+            @Valid @RequestBody UpdateStatusRequest request) {
+        return service.updateStatus(id, request.status(), request.reason());
     }
 
 }

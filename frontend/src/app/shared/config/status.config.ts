@@ -21,6 +21,26 @@ export const STATUS_ORDER: PaymentMessageStatus[] = [
   PaymentMessageStatus.FAILED, PaymentMessageStatus.DEAD_LETTER,
 ];
 
+/**
+ * Transitions acceptées par le serveur (`PaymentMessageStatus` côté backend). Recopiées ici
+ * pour ne proposer que des changements réalisables : le serveur reste l'autorité et répond
+ * 422 sur une transition interdite, mais l'IHM n'a pas à faire découvrir la règle par
+ * l'erreur.
+ */
+export const STATUS_TRANSITIONS: Record<PaymentMessageStatus, PaymentMessageStatus[]> = {
+  [PaymentMessageStatus.RECEIVED]: [PaymentMessageStatus.PROCESSED, PaymentMessageStatus.FAILED],
+  [PaymentMessageStatus.FAILED]: [
+    PaymentMessageStatus.RECEIVED, PaymentMessageStatus.PROCESSED, PaymentMessageStatus.DEAD_LETTER,
+  ],
+  // Statuts terminaux : un message traité ne redevient pas en attente, et un abandon reste tracé.
+  [PaymentMessageStatus.PROCESSED]: [],
+  [PaymentMessageStatus.DEAD_LETTER]: [],
+};
+
+export function allowedTransitions(from: PaymentMessageStatus): PaymentMessageStatus[] {
+  return STATUS_TRANSITIONS[from] ?? [];
+}
+
 export function statusMeta(status: PaymentMessageStatus): StatusMeta {
   return STATUS_META[status]
     ?? { label: String(status), title: String(status), color: '#586170', bg: '#ECEFF2' };

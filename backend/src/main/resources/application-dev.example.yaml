@@ -34,6 +34,25 @@ ibm:
     max-retries: 3
 
 
+app:
+  security:
+    jwt:
+      # Valeur de développement uniquement (32 octets minimum, HS256).
+      # En production : secret tiré au hasard, fourni par l'environnement (JWT_SECRET).
+      secret: dev-only-secret-change-me-32-bytes-min
+      expiration: 1h
+    public-docs: true
+    allowed-origins: http://localhost:4200
+    # Comptes de développement. Le préfixe {noop} indique un mot de passe en clair ;
+    # utiliser {bcrypt}$2a$… hors développement.
+    users:
+      - username: admin
+        password: "{noop}admin"
+        roles: [ADMIN, USER]
+      - username: operator
+        password: "{noop}operator"
+        roles: [USER]
+
 server:
   port: 8080
 
@@ -41,13 +60,14 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: when-authorized
-  info:
-    env:
-      enabled: true
+  # Décommenter pour isoler les endpoints d'exploitation sur un port dédié. Ils sortent
+  # alors de la chaîne de sécurité applicative : ce port ne doit pas être exposé.
+  # server:
+  #   port: 8081
 
 info:
   app:

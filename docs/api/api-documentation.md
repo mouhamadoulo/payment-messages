@@ -2,7 +2,78 @@
 
 Base URL : `http://localhost:8080`
 
-Swagger UI : `http://localhost:8080/swagger-ui.html`
+Swagger UI : `http://localhost:8080/swagger-ui.html` (bouton *Authorize* pour coller le jeton)
+
+---
+
+## Authentification
+
+Toute l'API est fermée : `/api/v1/**` exige un jeton, à la seule exception de
+`POST /api/v1/auth/login`. Le jeton est un JWT signé en HMAC-SHA256 par l'application
+elle-même (secret `app.security.jwt.secret`, 32 octets minimum) — il n'y a pas de serveur
+d'autorisation externe.
+
+Les comptes sont déclarés en configuration (`app.security.users[*]`), avec un mot de passe
+préfixé par son algorithme (`{bcrypt}…`, `{noop}…` en développement).
+
+### POST /api/v1/auth/login
+
+**Requête**
+
+```json
+{ "username": "admin", "password": "admin" }
+```
+
+**Réponse** `200 OK`
+
+```json
+{
+  "token": "eyJhbGciOiJIUzI1NiJ9...",
+  "tokenType": "Bearer",
+  "expiresIn": 3600,
+  "username": "admin",
+  "roles": ["ADMIN", "USER"]
+}
+```
+
+**Erreurs** : `400` requête incomplète · `401` identifiants invalides (le motif exact n'est
+jamais détaillé).
+
+Tous les autres appels portent ensuite :
+
+```
+Authorization: Bearer <token>
+```
+
+### Droits
+
+| Rôle | Autorisé |
+|---|---|
+| `USER` | lecture (`GET`), rejeu unitaire (`POST /{id}/retry`) |
+| `ADMIN` | tout, dont `DELETE /{id}`, `PUT /{id}/status`, `POST /batch/retry-failed` |
+
+Un appel sans jeton répond `401`, un rôle insuffisant `403`.
+
+### Endpoints publics
+
+`POST /api/v1/auth/login`, `/actuator/health`, `/actuator/info`, et — tant que
+`app.security.public-docs` vaut `true` — Swagger UI et `/v3/api-docs`. Le reste, y compris
+`/actuator/metrics` et `/actuator/prometheus`, exige un jeton.
+
+---
+
+## Conventions transverses
+
+- **En-tête de corrélation** : chaque réponse porte un `X-Request-Id`, repris de la requête
+  s'il est fourni. Le même identifiant apparaît dans les logs du serveur et dans le champ
+  `correlationId` des erreurs.
+- **Erreurs** : format `application/problem+json` (RFC 9457), cf. dernière section.
+- **Compression** : `gzip` actif au-delà de 1 Ko.
+- **Taille de page bornée à 200** (`spring.data.web.pageable.max-page-size`) : au-delà, la
+  valeur est ramenée à la borne pour `GET /messages`, et refusée en `400` pour
+  `GET /messages/cursor`.
+- **`ETag`** sur les lectures de `/api/v1/messages*` : renvoyer l'empreinte dans
+  `If-None-Match` produit un `304 Not Modified` sans corps.
 
 ---
 
@@ -86,7 +157,9 @@ que soit la profondeur de navigation. Le tri est figé sur `receivedAt DESC, id 
 
 ### GET /api/v1/messages/stats
 
-Retourne le nombre de messages pour chaque statut.
+Retourne le nombre de messages pour chaque statut. L'agrégat est mis en cache côté serveur
+quelques secondes (`STATS_CACHE_TTL`) et servi avec un `Cache-Control: max-age` de même
+durée plus un `ETag` : un rappel inchangé répond `304` sans corps.
 
 **Réponse** `200 OK`
 
@@ -129,22 +202,13 @@ Détail d'un message par son ID technique.
 }
 ```
 
-**Erreur** `404 Not Found`
-
-```json
-{
-  "status": 404,
-  "error": "Not Found",
-  "message": "Message introuvable avec l'id : 99",
-  "timestamp": "2025-01-15T10:30:00.000+00:00"
-}
-```
+**Erreur** `404 Not Found` — cf. « Schéma des réponses d'erreur ».
 
 ---
 
 ### DELETE /api/v1/messages/{id}
 
-Supprime un message par son ID.
+Supprime un message par son ID. **Réservé au rôle `ADMIN`.**
 
 **Paramètres**
 
@@ -154,13 +218,13 @@ Supprime un message par son ID.
 
 **Réponse** `204 No Content`
 
-**Erreur** `404 Not Found`
+**Erreurs** : `403 Forbidden` (rôle `ADMIN` requis) · `404 Not Found`
 
 ---
 
 ### POST /api/v1/messages/batch/retry-failed
 
-Rejoue tous les messages en statut `FAILED` : `retryCount` est incrémenté et chaque message repasse en
+**Réservé au rôle `ADMIN`.** Rejoue tous les messages en statut `FAILED` : `retryCount` est incrémenté et chaque message repasse en
 `RECEIVED`. Au-delà de `ibm.mq.max-retries` tentatives, le message part en `DEAD_LETTER` et son payload
 est republié sur la Dead Letter Queue.
 
@@ -244,7 +308,17 @@ sur la Dead Letter Queue. Seuls les messages `FAILED` sont rejouables.
 
 ### PUT /api/v1/messages/{id}/status
 
-Met à jour le statut d'un message.
+Met à jour le statut d'un message. **Réservé au rôle `ADMIN`.**
+
+La transition doit être autorisée par la machine à états (cf. `PaymentMessageStatus`) :
+
+```
+RECEIVED ──▶ PROCESSED (terminal)
+   └──▶ FAILED ──▶ RECEIVED | PROCESSED | DEAD_LETTER (terminal)
+```
+
+Un statut identique au statut courant est accepté sans effet (commande idempotente, aucune
+version consommée).
 
 **Paramètres**
 
@@ -252,12 +326,17 @@ Met à jour le statut d'un message.
 |---|---|---|
 | `id` | `Long` | Oui (path) |
 | `status` (body) | `PaymentMessageStatus` | Oui |
+| `reason` (body) | `String` (≤ 500) | Non |
 
 **Requête**
 
 ```json
-"PROCESSED"
+{ "status": "PROCESSED", "reason": "Vérifié manuellement après correction du bénéficiaire" }
 ```
+
+> Le corps était auparavant une chaîne JSON brute (`"PROCESSED"`). Il est désormais un objet
+> validé ; le `reason` est tracé dans les logs, et conservé comme `errorMessage` quand le
+> statut cible est `FAILED` ou `DEAD_LETTER` (effacé sinon).
 
 **Réponse** `200 OK`
 
@@ -273,9 +352,11 @@ Met à jour le statut d'un message.
 
 | Code | Cas |
 |---|---|
-| `400 Bad Request` | Statut invalide |
+| `400 Bad Request` | Corps invalide (statut absent, valeur d'enum inconnue, motif trop long) |
+| `403 Forbidden` | Rôle `ADMIN` requis |
 | `404 Not Found` | Message inexistant |
 | `409 Conflict` | Verrou optimiste perdu : le message a été modifié par une autre opération, le recharger avant de rejouer l'action |
+| `422 Unprocessable Entity` | Transition interdite par la machine à états. La réponse porte `from`, `to` et `allowedTransitions` |
 
 ---
 
@@ -313,13 +394,50 @@ Mêmes champs que `PaymentMessageDto`, **sans `payload`**. C'est le type rendu p
 
 ---
 
+### PaymentMessageStatus — transitions
+
+| Depuis | Vers |
+|---|---|
+| `RECEIVED` | `PROCESSED`, `FAILED` |
+| `FAILED` | `RECEIVED`, `PROCESSED`, `DEAD_LETTER` |
+| `PROCESSED` | — (terminal) |
+| `DEAD_LETTER` | — (terminal) |
+
+Une transition hors de ce tableau est refusée en `422`. La reprise d'un `DEAD_LETTER` passe
+par la Dead Letter Queue, pas par un retour en base.
+
+---
+
 ## Schéma des réponses d'erreur
+
+Format `application/problem+json` (RFC 9457, `ProblemDetail`) :
 
 ```json
 {
+  "type": "urn:payment-messages:not-found",
+  "title": "Ressource inexistante",
   "status": 404,
-  "error": "Not Found",
-  "message": "Message introuvable avec l'id : 99",
-  "timestamp": "2025-01-15T10:30:00.000+00:00"
+  "detail": "Message introuvable avec l'id : 99",
+  "instance": "/api/v1/messages/99",
+  "timestamp": "2026-07-25T10:30:00+02:00",
+  "correlationId": "8f2c1e2a-6b41-4a0e-9a55-1d0e6b3c7a12"
 }
 ```
+
+`correlationId` reprend le `X-Request-Id` de la requête : c'est la clé pour retrouver la
+trace serveur d'un incident.
+
+**Variantes utiles**
+
+| `type` | Statut | Champs supplémentaires |
+|---|---|---|
+| `urn:payment-messages:validation-failed` | 400 | `errors` : `{ champ: message }` |
+| `urn:payment-messages:unauthorized` | 401 | — |
+| `urn:payment-messages:forbidden` | 403 | — |
+| `urn:payment-messages:not-found` | 404 | — |
+| `urn:payment-messages:concurrent-update` | 409 | — |
+| `urn:payment-messages:invalid-status-transition` | 422 | `from`, `to`, `allowedTransitions` |
+| `urn:payment-messages:internal-error` | 500 | `correlationId` (le message d'exception n'est **jamais** exposé) |
+
+Les erreurs qualifiées nativement par Spring (corps illisible, paramètre manquant, méthode
+non supportée, type de média) conservent leur statut d'origine et le même format.

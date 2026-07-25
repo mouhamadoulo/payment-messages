@@ -180,6 +180,7 @@ Variables d'environnement requises (ou définies dans `application-dev.yaml`) :
 | `MQ_QUEUE` | `PAYMENT.REQUEST.QUEUE` |
 | `MQ_DLQ_QUEUE` | `PAYMENT.DLQ.QUEUE` |
 | `MQ_MAX_RETRIES` | `3` |
+| `JWT_SECRET` | Secret de signature des jetons, **32 octets minimum** — refus au démarrage sinon |
 
 Variables optionnelles (valeurs par défaut entre parenthèses) :
 
@@ -190,6 +191,17 @@ Variables optionnelles (valeurs par défaut entre parenthèses) :
 | `MQ_DLQ_RECOVERY_ENABLED` | Reprise planifiée des `DEAD_LETTER` non republiés (`true`) |
 | `MQ_DLQ_RECOVERY_INTERVAL` | Période de la reprise en ms (`60000`) |
 | `MQ_DLQ_RECOVERY_BATCH_SIZE` | Taille de lot de la reprise (`100`) |
+| `JWT_EXPIRATION` / `JWT_ISSUER` | Durée de validité et émetteur du jeton (`1h` / `payment-messages`) |
+| `SECURITY_PUBLIC_DOCS` | Swagger UI accessible sans jeton (`true`) — à passer à `false` en production |
+| `SECURITY_ALLOWED_ORIGINS` | Origines CORS autorisées (`http://localhost:4200`) |
+| `MAX_PAGE_SIZE` | Borne haute de pagination (`200`) |
+| `REQUEST_TIMEOUT` / `CONNECTION_TIMEOUT` | Délais maximaux (`15s` / `5s`) |
+| `MANAGEMENT_PORT` | Isole l'actuator sur un port dédié (vide = port de l'API) |
+
+Les comptes se déclarent dans `application-dev.yaml` (`app.security.users[*]`) ou par
+variables indexées (`APP_SECURITY_USERS_0_USERNAME`, `…_PASSWORD`, `…_ROLES_0`) — voir
+`docker-compose.yaml`. Le fichier d'exemple fournit `admin` / `admin` (rôles `ADMIN`, `USER`)
+et `operator` / `operator` (rôle `USER`), en `{noop}` : **valeurs de développement**.
 
 ### IBM MQ
 
@@ -236,10 +248,19 @@ Application disponible : `http://localhost:4200`
 
 ## API REST
 
+L'API est **fermée**. Obtenir un jeton, puis le présenter sur chaque appel :
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:8080/api/v1/auth/login   -H 'Content-Type: application/json'   -d '{"username":"admin","password":"admin"}' | sed -E 's/.*"token":"([^"]+)".*//')
+
+curl -s http://localhost:8080/api/v1/messages -H "Authorization: Bearer $TOKEN"
+```
+
 Base path : `/api/v1/messages`
 
 | Méthode | Path | Description |
 |---|---|---|
+| `POST` | `/api/v1/auth/login` | Émission d'un jeton JWT (seul endpoint public) |
 | `GET` | `/api/v1/messages` | Liste paginée, sans payload (filtres : status, receivedAfter) |
 | `GET` | `/api/v1/messages/cursor` | Liste paginée par curseur (keyset) |
 | `GET` | `/api/v1/messages/stats` | Statistiques par statut |
@@ -248,7 +269,11 @@ Base path : `/api/v1/messages`
 | `POST` | `/api/v1/messages/batch/retry-failed` | Relance batch des échecs (202 + `taskId`) |
 | `GET` | `/api/v1/messages/batch/retry-failed/{taskId}` | Suivi de la relance batch |
 | `POST` | `/api/v1/messages/{id}/retry` | Relance individuelle |
-| `PUT` | `/api/v1/messages/{id}/status` | Mise à jour du statut |
+| `PUT` | `/api/v1/messages/{id}/status` | Mise à jour du statut — corps `{ "status": "…", "reason": "…" }` (rôle `ADMIN`) |
+
+`DELETE /{id}`, `PUT /{id}/status` et `POST /batch/retry-failed` exigent le rôle `ADMIN` ; le
+reste, un compte authentifié. Les erreurs suivent le format `application/problem+json`
+(RFC 9457) et portent un `correlationId` repris de l'en-tête `X-Request-Id`.
 
 Documentation complète : [docs/api/api-documentation.md](docs/api/api-documentation.md)
 
@@ -272,7 +297,12 @@ Tests couverts :
 | `PaymentMessagesApplicationTests` | Intégration | Chargement du contexte Spring |
 | `PaymentMessageRepositoryTest` | JPA slice | CRUD, findByMessageId, findByReference |
 | `PaymentMessageServiceTest` | Unitaire (mocks) | Logique métier, exceptions |
-| `PaymentMessageControllerTest` | Web slice (MockMvc) | Endpoints REST |
+| `PaymentMessageControllerTest` | Web slice (MockMvc) | Endpoints REST, autorisations par rôle |
+| `AuthControllerTest` | Web slice (MockMvc) | Émission de jeton, refus d'identifiants |
+| `SecurityConfigTest` | Intégration | Jeton émis → accès, rôles, jeton falsifié refusé |
+| `MetricsConfigTest` | Intégration | `/actuator/prometheus` exposé et fermé, `env` absent |
+| `HttpCacheAndCorrelationTest` | Intégration | `ETag`/`304`, `X-Request-Id` |
+| `PaymentMessageStatusTest` | Unitaire | Machine à états des statuts |
 | `PaymentMessageMapperTest` | Unitaire | Mapping Entity ↔ DTO |
 
 ### Frontend
@@ -301,8 +331,19 @@ Endpoints Actuator exposés :
 |---|---|
 | `/actuator/health` | Santé de l'application |
 | `/actuator/info` | Informations (nom, version, java) |
-| `/actuator/metrics` | Métriques JVM et applicatives |
-| `/actuator/env` | Variables d'environnement |
+| `/actuator/metrics` | Métriques JVM et applicatives (jeton requis) |
+| `/actuator/prometheus` | Exposition Prometheus, métriques métier comprises (jeton requis) |
+
+`/actuator/env` a été **retiré** : il exposait toute la configuration résolue, identifiants MQ
+compris. Seuls `health` et `info` sont publics.
+
+Métriques métier : `payment.mq.messages.received` / `.rejected` / `.duplicates`,
+`payment.mq.listener.rollbacks`, `payment.dlq.publish.failures`, le chronomètre
+`payment.mq.processing` (étiqueté par issue) et les jauges `payment.messages.pending`,
+`.failed`, `.dead.letter`.
+
+Chaque réponse HTTP porte un `X-Request-Id`, présent dans les lignes de log correspondantes
+(`requestId`), aux côtés de `messageId` pour l'ingestion MQ.
 
 ---
 

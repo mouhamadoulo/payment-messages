@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { authGuard } from './core/guards/auth.guard';
 
 export const routes: Routes = [
   {
@@ -7,7 +8,17 @@ export const routes: Routes = [
     pathMatch: 'full'
   },
   {
+    // Seule route publique : l'API est fermée, tout le reste exige un jeton.
+    path: 'login',
+    data: {
+      title: 'Connexion',
+      subtitle: ''
+    },
+    loadComponent: () => import('./features/auth/login.page').then((m) => m.LoginPage)
+  },
+  {
     path: 'dashboard',
+    canActivate: [authGuard],
     data: {
       title: 'Tableau de bord',
       subtitle: 'Supervision des messages'
@@ -17,6 +28,7 @@ export const routes: Routes = [
   },
   {
     path: 'messages',
+    canActivate: [authGuard],
     data: {
       title: 'Messages',
       subtitle: 'Consultation des messages consommés depuis IBM MQ'
@@ -26,6 +38,7 @@ export const routes: Routes = [
   },
   {
     path: 'messages/:id',
+    canActivate: [authGuard],
     data: {
       title: 'Détail du message',
       subtitle: 'Métadonnées et payload MQ brut'

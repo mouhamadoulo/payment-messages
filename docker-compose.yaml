@@ -80,6 +80,20 @@ services:
       MQ_MAX_RETRIES: 3
       MQ_MIN_CONCURRENCY: 5
       MQ_MAX_CONCURRENCY: 10
+      # Sécurité : secret de signature des jetons (32 octets minimum, HS256).
+      # Valeur de démonstration — à remplacer par un secret tiré au hasard hors local.
+      JWT_SECRET: docker-only-secret-change-me-32-bytes
+      JWT_EXPIRATION: 1h
+      SECURITY_PUBLIC_DOCS: "true"
+      SECURITY_ALLOWED_ORIGINS: http://localhost:4200
+      # Comptes de démonstration. Le préfixe {noop} indique un mot de passe en clair.
+      APP_SECURITY_USERS_0_USERNAME: admin
+      APP_SECURITY_USERS_0_PASSWORD: "{noop}admin"
+      APP_SECURITY_USERS_0_ROLES_0: ADMIN
+      APP_SECURITY_USERS_0_ROLES_1: USER
+      APP_SECURITY_USERS_1_USERNAME: operator
+      APP_SECURITY_USERS_1_PASSWORD: "{noop}operator"
+      APP_SECURITY_USERS_1_ROLES_0: USER
     ports:
       - "8080:8080"
     depends_on:

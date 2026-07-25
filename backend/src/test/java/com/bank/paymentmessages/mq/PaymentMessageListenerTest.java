@@ -15,6 +15,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.slf4j.MDC;
 import org.springframework.dao.DataAccessResourceFailureException;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -29,6 +30,9 @@ import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class PaymentMessageListenerTest {
+
+    /** Identifiant technique du message JMS, alimente le MDC. */
+    private static final String JMS_MESSAGE_ID = "ID:414d5120514d31";
 
     @Mock
     private PaymentMessageService service;
@@ -53,7 +57,7 @@ class PaymentMessageListenerTest {
         String payload = validPayload("uuid-1");
         when(service.saveMessage(any(PaymentMessageEvent.class), eq(payload))).thenReturn(true);
 
-        listener.receive(payload);
+        listener.receive(payload, JMS_MESSAGE_ID);
 
         verify(service).saveMessage(any(PaymentMessageEvent.class), eq(payload));
         verify(service, never()).savePermanentFailure(anyString(), anyString(), anyString(), anyString(), anyString());
@@ -64,7 +68,7 @@ class PaymentMessageListenerTest {
         when(service.savePermanentFailure(anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(true);
 
-        listener.receive("{ ceci n'est pas du JSON");
+        listener.receive("{ ceci n'est pas du JSON", JMS_MESSAGE_ID);
 
         verify(service, never()).saveMessage(any(), anyString());
         verify(service).savePermanentFailure(anyString(), anyString(), anyString(),
@@ -81,7 +85,7 @@ class PaymentMessageListenerTest {
         when(service.savePermanentFailure(anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenReturn(true);
 
-        listener.receive(payload);
+        listener.receive(payload, JMS_MESSAGE_ID);
 
         verify(service, never()).saveMessage(any(), anyString());
         verify(service).savePermanentFailure(eq("uuid-2"), eq("UNKNOWN"), eq("UNKNOWN"),
@@ -94,7 +98,7 @@ class PaymentMessageListenerTest {
         when(service.saveMessage(any(PaymentMessageEvent.class), eq(payload)))
                 .thenThrow(new DataAccessResourceFailureException("base indisponible"));
 
-        assertThatThrownBy(() -> listener.receive(payload))
+        assertThatThrownBy(() -> listener.receive(payload, JMS_MESSAGE_ID))
                 .isInstanceOf(DataAccessResourceFailureException.class);
     }
 
@@ -103,7 +107,7 @@ class PaymentMessageListenerTest {
         when(service.savePermanentFailure(anyString(), anyString(), anyString(), anyString(), anyString()))
                 .thenThrow(new DataAccessResourceFailureException("base indisponible"));
 
-        assertThatThrownBy(() -> listener.receive("{ ceci n'est pas du JSON"))
+        assertThatThrownBy(() -> listener.receive("{ ceci n'est pas du JSON", JMS_MESSAGE_ID))
                 .isInstanceOf(DataAccessResourceFailureException.class);
     }
 
@@ -112,7 +116,7 @@ class PaymentMessageListenerTest {
         String payload = validPayload("uuid-4");
         when(service.saveMessage(any(PaymentMessageEvent.class), eq(payload))).thenReturn(false);
 
-        listener.receive(payload);
+        listener.receive(payload, JMS_MESSAGE_ID);
 
         assertThat(meterRegistry.counter("payment.mq.messages.duplicates").count()).isEqualTo(1d);
     }
@@ -122,9 +126,49 @@ class PaymentMessageListenerTest {
         String payload = validPayload("uuid-5").replace("\"status\"", "\"champInconnu\":\"x\",\"status\"");
         when(service.saveMessage(any(PaymentMessageEvent.class), eq(payload))).thenReturn(true);
 
-        listener.receive(payload);
+        listener.receive(payload, JMS_MESSAGE_ID);
 
         verify(service).saveMessage(any(PaymentMessageEvent.class), eq(payload));
+    }
+
+    @Test
+    void shouldRecordProcessingDurationPerOutcome() {
+        String payload = validPayload("uuid-6");
+        when(service.saveMessage(any(PaymentMessageEvent.class), eq(payload))).thenReturn(true);
+
+        listener.receive(payload, JMS_MESSAGE_ID);
+
+        assertThat(meterRegistry.timer("payment.mq.processing", "outcome", "persisted").count()).isEqualTo(1L);
+        assertThat(meterRegistry.counter("payment.mq.messages.received").count()).isEqualTo(1d);
+    }
+
+    @Test
+    void shouldRecordProcessingDurationEvenWhenTreatmentFails() {
+        String payload = validPayload("uuid-7");
+        when(service.saveMessage(any(PaymentMessageEvent.class), eq(payload)))
+                .thenThrow(new DataAccessResourceFailureException("base indisponible"));
+
+        assertThatThrownBy(() -> listener.receive(payload, JMS_MESSAGE_ID))
+                .isInstanceOf(DataAccessResourceFailureException.class);
+
+        // Un rollback lent est un symptôme utile : la durée est mesurée en échec aussi.
+        assertThat(meterRegistry.timer("payment.mq.processing", "outcome", "error").count()).isEqualTo(1L);
+    }
+
+    /**
+     * Les threads du conteneur JMS sont réutilisés : un MDC non purgé attacherait les
+     * identifiants de ce message aux logs du suivant.
+     */
+    @Test
+    void shouldClearCorrelationContextAfterProcessing() {
+        String payload = validPayload("uuid-8");
+        when(service.saveMessage(any(PaymentMessageEvent.class), eq(payload))).thenReturn(true);
+
+        listener.receive(payload, JMS_MESSAGE_ID);
+
+        assertThat(MDC.get("messageId")).isNull();
+        assertThat(MDC.get("reference")).isNull();
+        assertThat(MDC.get("jmsMessageId")).isNull();
     }
 
     private static JsonMapper paymentJsonMapper() {

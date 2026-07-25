@@ -2,9 +2,8 @@
 
 ## 1. Présentation
 
-Le frontend est une application **Angular 22** en **standalone components** (sans NgModule).
-
-> **Note :** Le frontend est actuellement en phase initiale de développement. Seul le scaffold Angular CLI est présent. Les fonctionnalités métier (dashboard, recherche, détail) sont à implémenter.
+Le frontend est une application **Angular 22** en **standalone components** (sans NgModule),
+routes entièrement paresseuses (`loadComponent`), état en **signaux**, mode *zoneless*.
 
 ---
 
@@ -15,83 +14,86 @@ Le frontend est une application **Angular 22** en **standalone components** (san
 | Angular | 22 | Framework |
 | TypeScript | 6 | Langage |
 | RxJS | 7.8 | Programmation réactive |
+| Angular Material + CDK | 22 | Dialogues, snackbar, sélecteurs |
 | Vitest | 4 | Tests unitaires |
 | Prettier | 3.8 | Formateur de code |
 | SCSS | - | Préprocesseur CSS |
 
 ---
 
-## 3. Structure actuelle
+## 3. Structure
 
 ```
 frontend/src/
-├── index.html                 # Point d'entrée HTML
-├── main.ts                    # Bootstrap Angular
-├── styles.scss                # Styles globaux (vide)
+├── main.ts                        # Bootstrap Angular
+├── styles/_tokens.scss            # Design tokens (couleurs, espacements, polices)
 └── app/
-    ├── app.ts                 # Composant racine
-    ├── app.html               # Template racine
-    ├── app.scss               # Styles du composant racine
-    ├── app.config.ts          # Configuration (providers, router)
-    ├── app.routes.ts          # Configuration des routes (vide)
-    └── app.spec.ts            # Tests du composant racine
+    ├── app.ts                     # Racine : gabarit applicatif si session, sinon router-outlet
+    ├── app.config.ts              # Providers (router, HttpClient + intercepteurs, Material)
+    ├── app.routes.ts              # Routes paresseuses, protégées par authGuard
+    ├── core/                      # Singletons applicatifs
+    │   ├── auth/auth.service.ts             # Session : jeton, identité, rôles (signaux)
+    │   ├── config/api.config.ts             # Chemins d'API
+    │   ├── guards/auth.guard.ts             # Redirection vers /login sans session
+    │   ├── interceptors/api.interceptor.ts  # Préfixe /api/v1
+    │   ├── interceptors/auth.interceptor.ts # Jeton Bearer + traitement centralisé des 401
+    │   └── services/                        # NotificationService, ThemeService
+    ├── features/
+    │   ├── auth/login.page.ts               # Écran de connexion
+    │   └── messages/                        # Domaine : pages, composants, service, modèles
+    ├── layout/                              # header / sidebar / main-layout
+    └── shared/                              # status-badge, ui/icon, kpi-card, config, pipes
 ```
 
 ---
 
-## 4. État d'avancement
+## 4. Session et sécurité
 
-### 4.1 Implémenté
-
-- ✅ Scaffold Angular 22 standalone
-- ✅ Composant racine `App`
-- ✅ Configuration du routeur (prêt à recevoir des routes)
-- ✅ Configuration des providers
-- ✅ Tests de base (création du composant, rendu)
-
-### 4.2 À implémenter
-
-- ❌ **Services HTTP** : appel à l'API REST `/api/v1/messages`
-- ❌ **Modèles** : interfaces TypeScript (`PaymentMessage`, `PaymentMessageStatus`)
-- ❌ **Dashboard** : liste paginée des messages avec filtres (statut, date)
-- ❌ **Détail** : consultation d'un message individuel
-- ❌ **Recherche** : filtrage par référence, messageId
-- ❌ **Environnements** : configuration `environment.ts` (URL API)
-- ❌ **Composants** : structure de dossiers dédiée
-
----
-
-## 5. Architecture cible
+L'API est fermée : sans jeton, toutes les requêtes répondent `401`. La chaîne côté client :
 
 ```mermaid
-flowchart TD
-    APP[App Component] --> ROUTER[Router]
-    ROUTER --> DASHBOARD[Dashboard Component]
-    ROUTER --> DETAIL[Message Detail Component]
-
-    DASHBOARD --> SERVICE[PaymentMessageService]
-    DETAIL --> SERVICE
-
-    SERVICE --> HTTP[HttpClient]
-    HTTP --> API[API REST /api/v1/messages]
+flowchart LR
+    GUARD[authGuard] -->|pas de session| LOGIN[/login/]
+    LOGIN -->|POST /auth/login| API[(API)]
+    API -->|token + rôles| AUTH[AuthService]
+    AUTH -->|sessionStorage| STORE[(sessionStorage)]
+    AUTH --> INTERCEPT[authInterceptor]
+    INTERCEPT -->|Authorization: Bearer| API
+    API -->|401| INTERCEPT
+    INTERCEPT -->|logout| LOGIN
 ```
 
-### 5.1 Modules et fonctionnalités prévues
+- **`AuthService`** conserve jeton, identité et rôles en signaux, persistés dans
+  `sessionStorage` — et non `localStorage` : la session disparaît à la fermeture de l'onglet,
+  ce qui réduit la fenêtre d'exploitation en cas de XSS.
+- **`authInterceptor`** pose l'en-tête `Authorization` sur les appels API (sauf
+  l'authentification) et traite le `401` en un seul endroit : session fermée, redirection vers
+  `/login`. Un `403` ne ferme pas la session, c'est un défaut de rôle.
+- **`authGuard`** évite d'ouvrir une vue qui ne pourrait rien charger, et mémorise l'URL
+  demandée (`returnUrl`).
+- Hors session, `app.ts` rend la page de connexion **seule** : le gabarit (barre latérale,
+  bandeau, bouton d'actualisation) n'aurait rien à afficher.
+- Le bandeau affiche le compte connecté, ses rôles en infobulle, et un bouton de déconnexion.
+- Les opérations réservées à `ADMIN` (suppression, changement de statut, rejeu massif)
+  restent visibles : un `403` est signalé par un message explicite plutôt que masqué.
 
-| Module | Composants | Rôle |
-|---|---|---|
-| Core | `PaymentMessageService`, Modèles | Services HTTP, interfaces |
-| Dashboard | `MessageListComponent`, `FilterBarComponent` | Liste paginée, filtres |
-| Detail | `MessageDetailComponent` | Vue détaillée d'un message |
+---
 
-### 5.2 Endpoints consommés
+## 5. Endpoints consommés
 
 | Méthode | Path | Usage |
 |---|---|---|
+| `POST` | `/api/v1/auth/login` | Obtention du jeton |
 | `GET` | `/api/v1/messages` | Liste paginée avec filtres |
 | `GET` | `/api/v1/messages/stats` | Statistiques par statut |
-| `GET` | `/api/v1/messages/{id}` | Détail d'un message |
-| `DELETE` | `/api/v1/messages/{id}` | Suppression |
-| `POST` | `/api/v1/messages/batch/retry-failed` | Retry batch |
-| `POST` | `/api/v1/messages/{id}/retry` | Retry individuel |
-| `PUT` | `/api/v1/messages/{id}/status` | Mise à jour statut |
+| `GET` | `/api/v1/messages/{id}` | Détail d'un message (payload inclus) |
+| `GET` | `/api/v1/config` | Configuration MQ non sensible |
+| `DELETE` | `/api/v1/messages/{id}` | Suppression (`ADMIN`) |
+| `POST` | `/api/v1/messages/batch/retry-failed` | Rejeu massif (`ADMIN`), suivi par `taskId` |
+| `POST` | `/api/v1/messages/{id}/retry` | Rejeu individuel |
+| `PUT` | `/api/v1/messages/{id}/status` | Changement de statut (`ADMIN`), corps `{ status, reason }` |
+
+Le sélecteur de statut ne propose que les transitions autorisées (`STATUS_TRANSITIONS` dans
+`shared/config/status.config.ts`, recopie de la machine à états du serveur) et recueille un
+motif facultatif. Le serveur reste l'autorité : une transition interdite répond `422`, dont le
+`detail` est affiché tel quel.

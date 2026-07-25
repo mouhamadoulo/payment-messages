@@ -26,9 +26,10 @@ flowchart LR
 ```mermaid
 stateDiagram-v2
     [*] --> RECEIVED: Message reçu de MQ
-    RECEIVED --> PROCESSED: PUT /{id}/status "PROCESSED"
-    RECEIVED --> FAILED: PUT /{id}/status "FAILED"
+    RECEIVED --> PROCESSED: PUT /{id}/status { "status": "PROCESSED" }
+    RECEIVED --> FAILED: PUT /{id}/status { "status": "FAILED" }
     FAILED --> RECEIVED: POST /{id}/retry (retryCount <= max-retries)
+    FAILED --> PROCESSED: PUT /{id}/status (résolution manuelle)
     FAILED --> DEAD_LETTER: POST /{id}/retry (retryCount > max-retries)
     PROCESSED --> [*]
     DEAD_LETTER --> [*]
@@ -45,6 +46,12 @@ stateDiagram-v2
 
 > Aucune transition n'est automatique : le listener ne pose que l'état initial `RECEIVED`.
 > `PROCESSED` et `FAILED` sont pilotés par `PUT /{id}/status`, `RECEIVED`/`DEAD_LETTER` par `/retry`.
+>
+> Ce graphe est **appliqué** par le serveur : `PUT /{id}/status` confronte la demande à
+> `PaymentMessageStatus.canTransitionTo(...)` et refuse toute autre transition en `422`
+> (`RECEIVED → DEAD_LETTER` sans tentative, sortie d'un statut terminal…). Un statut identique
+> à l'actuel est accepté sans effet. La reprise d'un `DEAD_LETTER` passe par la Dead Letter
+> Queue, pas par un retour en base.
 
 ---
 

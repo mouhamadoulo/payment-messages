@@ -51,8 +51,13 @@ stateDiagram-v2
     RECEIVED --> PROCESSED: Succès
     RECEIVED --> FAILED: Erreur
     FAILED --> RECEIVED: Nouvelle tentative (/retry)
+    FAILED --> PROCESSED: Résolution manuelle
     FAILED --> DEAD_LETTER: Abandon après max-retries
 ```
+
+Ces transitions sont les **seules** acceptées : `PUT /{id}/status` confronte toute demande à
+la machine à états (`PaymentMessageStatus`) et refuse le reste en `422`. `PROCESSED` et
+`DEAD_LETTER` sont terminaux.
 
 Le cycle de vie complet (4 statuts) et les transitions détaillées sont documentés dans [flux.md](./flux.md).
 
@@ -60,17 +65,20 @@ Le cycle de vie complet (4 statuts) et les transitions détaillées sont documen
 
 ## 4. API REST
 
-Base path : `/api/v1/messages`
+L'API est **fermée** : hormis l'authentification, tout appel exige un jeton
+(`Authorization: Bearer <token>`) obtenu sur `POST /api/v1/auth/login`.
 
-| Méthode | Path | Action |
-|---|---|---|
-| `GET` | `/api/v1/messages` | Liste paginée avec filtres (statut, date) |
-| `GET` | `/api/v1/messages/stats` | Statistiques par statut |
-| `GET` | `/api/v1/messages/{id}` | Détail d'un message |
-| `DELETE` | `/api/v1/messages/{id}` | Suppression |
-| `POST` | `/api/v1/messages/batch/retry-failed` | Relance des messages en échec |
-| `POST` | `/api/v1/messages/{id}/retry` | Relance individuelle |
-| `PUT` | `/api/v1/messages/{id}/status` | Mise à jour du statut |
+| Méthode | Path | Action | Rôle |
+|---|---|---|---|
+| `POST` | `/api/v1/auth/login` | Émission d'un jeton JWT | public |
+| `GET` | `/api/v1/messages` | Liste paginée avec filtres (statut, date) | authentifié |
+| `GET` | `/api/v1/messages/cursor` | Pagination par curseur (keyset) | authentifié |
+| `GET` | `/api/v1/messages/stats` | Statistiques par statut | authentifié |
+| `GET` | `/api/v1/messages/{id}` | Détail d'un message | authentifié |
+| `DELETE` | `/api/v1/messages/{id}` | Suppression | `ADMIN` |
+| `POST` | `/api/v1/messages/batch/retry-failed` | Relance des messages en échec | `ADMIN` |
+| `POST` | `/api/v1/messages/{id}/retry` | Relance individuelle | authentifié |
+| `PUT` | `/api/v1/messages/{id}/status` | Mise à jour du statut | `ADMIN` |
 
 Swagger UI : `http://localhost:8080/swagger-ui.html`
 
@@ -95,6 +103,8 @@ Documentation complète : [docs/api/api-documentation.md](../api/api-documentati
 | Jackson | - |
 | SpringDoc OpenAPI | 2.8.9 |
 | Spring Boot Actuator | - |
+| Spring Security (JWT HMAC) | - |
+| Micrometer + Prometheus | - |
 
 ### Frontend
 

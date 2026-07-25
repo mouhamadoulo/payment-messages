@@ -2,6 +2,7 @@ package com.bank.paymentmessages.controller;
 
 import com.bank.paymentmessages.dto.api.MqConfigDto;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("/api/v1/config")
 @Tag(name = "Configuration", description = "Configuration MQ exposée à l'IHM (sans secret)")
+@SecurityRequirement(name = "bearerAuth")
 public class ConfigController {
 
     private final MqConfigDto mqConfig;

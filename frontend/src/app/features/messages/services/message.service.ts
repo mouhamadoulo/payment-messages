@@ -200,9 +200,11 @@ export class MessageService {
           this.notification.success('Rejeu massif démarré');
           this.pollBatchRetry(task.taskId);
         },
-        error: () => {
+        error: (err: { status?: number }) => {
           this.batchRetryRunning.set(false);
-          this.notification.error('Erreur lors de la relance batch');
+          this.notification.error(err.status === 403
+            ? 'Rejeu massif réservé au rôle ADMIN'
+            : 'Erreur lors de la relance batch');
         }
       });
   }
@@ -232,10 +234,13 @@ export class MessageService {
       });
   }
 
-  updateStatus(id: number, status: PaymentMessageStatus) {
-    this.http.put<PaymentMessage>(`${API_CONFIG.messages}/${id}/status`, `"${status}"`, {
-      headers: { 'Content-Type': 'application/json' }
-    }).subscribe({
+  /**
+   * Le serveur attend un objet `{ status, reason? }` et non plus une chaîne JSON brute.
+   * Il refuse par ailleurs les transitions incohérentes (422) : le message d'erreur du
+   * serveur est repris tel quel, lui seul connaît la règle violée.
+   */
+  updateStatus(id: number, status: PaymentMessageStatus, reason?: string) {
+    this.http.put<PaymentMessage>(`${API_CONFIG.messages}/${id}/status`, { status, reason }).subscribe({
       next: (res) => {
         this.currentMessage.set(res);
         this.patchLocal(res);
@@ -243,7 +248,17 @@ export class MessageService {
         this.loadStats();
         this.notification.success('Statut mis à jour');
       },
-      error: () => this.notification.error('Erreur lors de la mise à jour du statut')
+      error: (err: { status?: number; error?: { detail?: string } }) => {
+        if (err.status === 422) {
+          this.notification.error(err.error?.detail ?? 'Changement de statut refusé');
+          return;
+        }
+        if (err.status === 403) {
+          this.notification.error('Opération réservée au rôle ADMIN');
+          return;
+        }
+        this.notification.error('Erreur lors de la mise à jour du statut');
+      }
     });
   }
 
@@ -257,7 +272,8 @@ export class MessageService {
           this.loadStats();
           if (redirect) this.router.navigate(['/messages']);
         },
-        error: () => this.notification.error('Erreur lors de la suppression')
+        error: (err: { status?: number }) => this.notification.error(
+          err.status === 403 ? 'Suppression réservée au rôle ADMIN' : 'Erreur lors de la suppression')
       });
   }
 

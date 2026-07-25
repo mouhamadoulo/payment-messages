@@ -51,6 +51,18 @@ spring:
       max-concurrency: ${MQ_MAX_CONCURRENCY:10}
       receive-timeout: 5s
 
+  # Borne haute de pagination : sans elle, ?size=100000 était accepté tel quel et une
+  # seule requête pouvait ramener toute la table.
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: ${MAX_PAGE_SIZE:200}
+
+  mvc:
+    async:
+      request-timeout: ${REQUEST_TIMEOUT:15s}
+
 ibm:
   mq:
     queue-manager: ${MQ_QMGR}
@@ -69,6 +81,27 @@ ibm:
 
 
 app:
+  # L'API est fermée : tout /api/v1/** exige un jeton, sauf POST /api/v1/auth/login.
+  security:
+    jwt:
+      # HS256 : 32 octets minimum, refusé au démarrage sinon. Jamais de valeur par défaut,
+      # un secret de signature ne doit pas pouvoir être deviné depuis le dépôt.
+      secret: ${JWT_SECRET}
+      expiration: ${JWT_EXPIRATION:1h}
+      issuer: ${JWT_ISSUER:payment-messages}
+    # Swagger UI ouvert en développement ; à fermer en production, le contrat renseigne
+    # un attaquant sur toute la surface de l'API.
+    public-docs: ${SECURITY_PUBLIC_DOCS:true}
+    allowed-origins: ${SECURITY_ALLOWED_ORIGINS:http://localhost:4200}
+    # Les comptes (app.security.users[*].username / password / roles) sont déclarés par le
+    # profil actif, cf. application-dev.example.yaml. Sans compte, aucune authentification
+    # n'est possible : c'est volontaire, le fichier commun ne porte aucun identifiant.
+
+  # Cache HTTP des lectures. À garder aligné sur STATS_CACHE_TTL (cache serveur) : au-delà,
+  # le client conserverait un agrégat que le serveur a déjà recalculé.
+  http-cache:
+    stats-ttl: ${STATS_CACHE_TTL:15s}
+
   # Rejeu massif des messages FAILED : lots bornés, exécutés en tâche de fond.
   batch-retry:
     batch-size: ${BATCH_RETRY_SIZE:500}
@@ -85,21 +118,41 @@ app:
 
 server:
   port: ${SERVER_PORT}
+  # Les réponses de liste et d'agrégat sont du JSON très répétitif : la compression divise
+  # le volume transféré par un facteur 5 à 10 pour un coût CPU négligeable.
+  compression:
+    enabled: true
+    mime-types: application/json,application/problem+json,text/plain,text/css,text/html,application/javascript
+    min-response-size: 1024
+  tomcat:
+    connection-timeout: ${CONNECTION_TIMEOUT:5s}
+    max-http-form-post-size: 256KB
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env
+        # `env` retiré : l'endpoint révélait toute la configuration résolue, identifiants MQ
+        # et URL de base compris. `prometheus` remplace la collecte manuelle des métriques.
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       show-details: when-authorized
-  info:
-    env:
-      enabled: true
+  # Par défaut les endpoints restent sur le port de l'API, où la chaîne de sécurité les
+  # filtre (health/info publics, metrics/prometheus authentifiés). MANAGEMENT_PORT les
+  # déplace sur un port dédié : ils quittent alors le contexte applicatif, donc la chaîne
+  # de sécurité — ce port ne doit dans ce cas jamais être exposé publiquement.
+  server:
+    port: ${MANAGEMENT_PORT:}
 
 info:
   app:
     name: payment-messages
     version: 1.0.0
     java-version: 21
+
+logging:
+  # Identifiants de corrélation dans chaque ligne de log : requestId côté API
+  # (cf. CorrelationIdFilter), messageId côté ingestion MQ (cf. PaymentMessageListener).
+  pattern:
+    level: "%5p [${spring.application.name},req=%X{requestId:-},msg=%X{messageId:-}]"

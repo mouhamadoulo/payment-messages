@@ -155,9 +155,9 @@ export class MessageListPage implements OnInit, AfterViewInit {
     const msg = this.svc.currentMessage();
     if (!msg) return;
     const { SelectStatusDialog } = await import('../message-detail/select-status.dialog');
-    this.dialog.open(SelectStatusDialog).afterClosed()
-      .subscribe((status: PaymentMessageStatus) => {
-        if (status) this.svc.updateStatus(msg.id, status);
+    this.dialog.open(SelectStatusDialog, { data: { current: msg.status } }).afterClosed()
+      .subscribe((result?: { status: PaymentMessageStatus; reason?: string }) => {
+        if (result) this.svc.updateStatus(msg.id, result.status, result.reason);
       });
   }
 

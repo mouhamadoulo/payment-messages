@@ -8,13 +8,17 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.Validator;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 import org.springframework.jms.annotation.JmsListener;
+import org.springframework.jms.support.JmsHeaders;
+import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Component;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 
@@ -33,6 +37,10 @@ import java.util.stream.Collectors;
  *       queue manager ({@code BOTHRESH} / {@code BOQNAME}).</li>
  * </ul>
  * Dans les deux cas, aucun message n'est perdu.
+ * <p>
+ * Observabilité : chaque traitement alimente le MDC ({@code messageId}, {@code reference},
+ * {@code jmsMessageId}) — toutes les lignes de log d'un message sont donc corrélables — et
+ * un chronomètre {@code payment.mq.processing} ventilé par issue.
  */
 @Component
 public class PaymentMessageListener {
@@ -42,9 +50,23 @@ public class PaymentMessageListener {
     /** Valeur de repli quand le payload est illisible : les colonnes concernées sont non nulles. */
     private static final String UNKNOWN = "UNKNOWN";
 
+    private static final String TIMER = "payment.mq.processing";
+
+    /** Clés MDC reprises par le motif de log (cf. {@code logging.pattern.level}). */
+    private static final String MDC_MESSAGE_ID = "messageId";
+    private static final String MDC_REFERENCE = "reference";
+    private static final String MDC_JMS_MESSAGE_ID = "jmsMessageId";
+
+    private static final String OUTCOME_PERSISTED = "persisted";
+    private static final String OUTCOME_DUPLICATE = "duplicate";
+    private static final String OUTCOME_REJECTED = "rejected";
+    private static final String OUTCOME_ERROR = "error";
+
     private final PaymentMessageService service;
     private final JsonMapper jsonMapper;
     private final Validator validator;
+    private final MeterRegistry meterRegistry;
+    private final Counter receivedCounter;
     private final Counter rejectedCounter;
     private final Counter duplicateCounter;
 
@@ -54,6 +76,10 @@ public class PaymentMessageListener {
         this.service = service;
         this.jsonMapper = jsonMapper;
         this.validator = validator;
+        this.meterRegistry = meterRegistry;
+        this.receivedCounter = Counter.builder("payment.mq.messages.received")
+                .description("Messages consommés et persistés depuis la file d'entrée")
+                .register(meterRegistry);
         this.rejectedCounter = Counter.builder("payment.mq.messages.rejected")
                 .description("Messages rejetés définitivement et persistés en FAILED")
                 .register(meterRegistry);
@@ -64,7 +90,32 @@ public class PaymentMessageListener {
 
 
     @JmsListener(destination = "${ibm.mq.queue}")
-    public void receive(String payload) {
+    public void receive(String payload,
+                        @Header(name = JmsHeaders.MESSAGE_ID, required = false) String jmsMessageId) {
+
+        long startedAt = System.nanoTime();
+        String outcome = OUTCOME_ERROR;
+
+        MDC.put(MDC_JMS_MESSAGE_ID, jmsMessageId == null ? UNKNOWN : jmsMessageId);
+
+        try {
+            outcome = process(payload);
+        } finally {
+            // La durée est enregistrée même en échec : un rollback lent est un symptôme utile.
+            meterRegistry.timer(TIMER, "outcome", outcome)
+                    .record(System.nanoTime() - startedAt, TimeUnit.NANOSECONDS);
+
+            // Les threads du conteneur JMS sont réutilisés : sans purge, le message suivant
+            // hériterait des identifiants du précédent.
+            MDC.remove(MDC_JMS_MESSAGE_ID);
+            MDC.remove(MDC_MESSAGE_ID);
+            MDC.remove(MDC_REFERENCE);
+        }
+    }
+
+
+    /** @return l'issue du traitement, utilisée comme étiquette du chronomètre */
+    private String process(String payload) {
 
         PaymentMessageEvent event;
 
@@ -72,10 +123,12 @@ public class PaymentMessageListener {
             event = jsonMapper.readValue(payload, PaymentMessageEvent.class);
         } catch (JacksonException e) {
             // Erreur définitive : un rejeu produirait exactement la même erreur.
-            rejectPermanently(UNKNOWN + "-" + UUID.randomUUID(), UNKNOWN, UNKNOWN, payload,
+            return rejectPermanently(UNKNOWN + "-" + UUID.randomUUID(), UNKNOWN, UNKNOWN, payload,
                     "Payload JSON illisible : " + e.getMessage());
-            return;
         }
+
+        MDC.put(MDC_MESSAGE_ID, hasText(event.getMessageId()) ? event.getMessageId() : UNKNOWN);
+        MDC.put(MDC_REFERENCE, hasText(event.getReference()) ? event.getReference() : UNKNOWN);
 
         Set<ConstraintViolation<PaymentMessageEvent>> violations = validator.validate(event);
 
@@ -84,23 +137,25 @@ public class PaymentMessageListener {
                     .map(v -> v.getPropertyPath() + " : " + v.getMessage())
                     .collect(Collectors.joining(", "));
 
-            rejectPermanently(
+            return rejectPermanently(
                     hasText(event.getMessageId()) ? event.getMessageId() : UNKNOWN + "-" + UUID.randomUUID(),
                     hasText(event.getReference()) ? event.getReference() : UNKNOWN,
                     hasText(event.getMessageType()) ? event.getMessageType() : UNKNOWN,
                     payload,
                     "Validation en échec : " + errors);
-            return;
         }
 
         // Toute exception d'ici est considérée comme transitoire : elle remonte,
         // la session JMS effectue un rollback et le broker redélivre le message.
         if (service.saveMessage(event, payload)) {
+            receivedCounter.increment();
             log.info("Message paiement sauvegardé : {}", event.getMessageId());
-        } else {
-            duplicateCounter.increment();
-            log.info("Message paiement déjà traité, redélivrance ignorée : {}", event.getMessageId());
+            return OUTCOME_PERSISTED;
         }
+
+        duplicateCounter.increment();
+        log.info("Message paiement déjà traité, redélivrance ignorée : {}", event.getMessageId());
+        return OUTCOME_DUPLICATE;
     }
 
 
@@ -108,16 +163,18 @@ public class PaymentMessageListener {
      * Persiste le rejet et acquitte. Si la persistance elle-même échoue (base
      * indisponible), l'exception remonte : le message sera redélivré plutôt que perdu.
      */
-    private void rejectPermanently(String messageId, String reference, String messageType,
-                                   String payload, String errorMessage) {
+    private String rejectPermanently(String messageId, String reference, String messageType,
+                                     String payload, String errorMessage) {
 
         log.error("Message IBM MQ rejeté définitivement ({}) : {}", messageId, errorMessage);
 
         if (service.savePermanentFailure(messageId, reference, messageType, payload, errorMessage)) {
             rejectedCounter.increment();
-        } else {
-            duplicateCounter.increment();
+            return OUTCOME_REJECTED;
         }
+
+        duplicateCounter.increment();
+        return OUTCOME_DUPLICATE;
     }
 
     private static boolean hasText(String value) {

@@ -6,12 +6,15 @@ import com.bank.paymentmessages.dto.api.PaymentMessageSummaryDto;
 import com.bank.paymentmessages.dto.mq.PaymentMessageEvent;
 import com.bank.paymentmessages.entity.PaymentMessage;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
+import com.bank.paymentmessages.exception.InvalidStatusTransitionException;
 import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
 import com.bank.paymentmessages.mapper.PaymentMessageMapper;
 import com.bank.paymentmessages.mq.DeadLetterPublisher;
 import com.bank.paymentmessages.mq.DeadLetterRequestedEvent;
 import com.bank.paymentmessages.repository.PaymentMessageRepository;
 import com.bank.paymentmessages.repository.PaymentMessageSummary;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
@@ -47,6 +50,8 @@ import java.util.Map;
 @Service
 @Transactional(readOnly = true)
 public class PaymentMessageService {
+
+    private static final Logger log = LoggerFactory.getLogger(PaymentMessageService.class);
 
     /** Nom du cache des statistiques (cf. {@code spring.cache}). */
     public static final String STATS_CACHE = "messageStats";
@@ -279,23 +284,65 @@ public class PaymentMessageService {
     }
 
     /**
-     * Le verrou optimiste ({@code @Version}) arbitre deux changements de statut
-     * concurrents : le second échoue au lieu d'écraser le premier.
+     * Applique un changement de statut demandé par l'API.
+     * <p>
+     * La transition est confrontée à la machine à états ({@link PaymentMessageStatus}) :
+     * sans ce contrôle, n'importe quelle valeur d'enum était acceptée et un message
+     * pouvait passer directement de {@code RECEIVED} à {@code DEAD_LETTER} sans qu'aucune
+     * tentative n'ait eu lieu. Le verrou optimiste ({@code @Version}) arbitre par ailleurs
+     * deux changements concurrents : le second échoue au lieu d'écraser le premier.
+     *
+     * @param reason motif facultatif de l'intervention manuelle
+     * @throws InvalidStatusTransitionException si la transition n'est pas autorisée
      */
     @Transactional
     @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
-    public PaymentMessageDto updateStatus(Long id, PaymentMessageStatus newStatus) {
+    public PaymentMessageDto updateStatus(Long id, PaymentMessageStatus newStatus, String reason) {
+
         PaymentMessage message = repository.findById(id)
                 .orElseThrow(() -> new PaymentMessageNotFoundException(id));
-        boolean entersDeadLetter = newStatus == PaymentMessageStatus.DEAD_LETTER
-                && message.getStatus() != PaymentMessageStatus.DEAD_LETTER;
+
+        PaymentMessageStatus currentStatus = message.getStatus();
+        if (!currentStatus.canTransitionTo(newStatus)) {
+            throw new InvalidStatusTransitionException(currentStatus, newStatus);
+        }
+
+        // Statut inchangé : la commande est neutre, on ne consomme pas de version.
+        if (currentStatus == newStatus) {
+            return PaymentMessageMapper.toDto(message);
+        }
+
+        log.info("Changement de statut du message {} : {} -> {}{}",
+                id, currentStatus, newStatus, reason == null ? "" : " (motif : " + reason + ")");
+
+        boolean entersDeadLetter = newStatus == PaymentMessageStatus.DEAD_LETTER;
         message.setStatus(newStatus);
         message.setUpdatedAt(OffsetDateTime.now());
+        applyReason(message, newStatus, reason);
+
         PaymentMessage saved = repository.save(message);
         if (entersDeadLetter) {
             requestDeadLetterPublication(saved);
         }
         return PaymentMessageMapper.toDto(saved);
+    }
+
+    /**
+     * Le motif tient lieu de message d'erreur sur un statut d'échec ; sur un retour à un
+     * statut sain, l'erreur précédente est effacée pour ne pas laisser un diagnostic
+     * obsolète attaché au message.
+     */
+    private static void applyReason(PaymentMessage message, PaymentMessageStatus newStatus, String reason) {
+        boolean failureStatus = newStatus == PaymentMessageStatus.FAILED
+                || newStatus == PaymentMessageStatus.DEAD_LETTER;
+
+        if (failureStatus) {
+            if (reason != null && !reason.isBlank()) {
+                message.setErrorMessage(reason);
+            }
+            return;
+        }
+        message.setErrorMessage(null);
     }
 
     /**

@@ -51,13 +51,13 @@ export class MessageDetailPage implements OnInit {
   }
 
   protected async onChangeStatus() {
+    const msg = this.messageService.currentMessage();
+    if (!msg) return;
+
     const { SelectStatusDialog } = await import('./select-status.dialog');
-    const ref = this.dialog.open(SelectStatusDialog);
-    ref.afterClosed().subscribe((status: PaymentMessageStatus) => {
-      if (status) {
-        const msg = this.messageService.currentMessage();
-        if (msg) this.messageService.updateStatus(msg.id, status);
-      }
+    const ref = this.dialog.open(SelectStatusDialog, { data: { current: msg.status } });
+    ref.afterClosed().subscribe((result?: { status: PaymentMessageStatus; reason?: string }) => {
+      if (result) this.messageService.updateStatus(msg.id, result.status, result.reason);
     });
   }
 

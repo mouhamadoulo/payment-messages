@@ -3,5 +3,6 @@ export const API_CONFIG = {
   messages: '/messages',
   stats: '/messages/stats',
   batchRetry: '/messages/batch/retry-failed',
-  config: '/config'
+  config: '/config',
+  login: '/auth/login'
 };

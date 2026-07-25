@@ -6,6 +6,7 @@ import com.bank.paymentmessages.dto.api.PaymentMessageSummaryDto;
 import com.bank.paymentmessages.dto.mq.PaymentMessageEvent;
 import com.bank.paymentmessages.entity.PaymentMessage;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
+import com.bank.paymentmessages.exception.InvalidStatusTransitionException;
 import com.bank.paymentmessages.mq.DeadLetterPublisher;
 import com.bank.paymentmessages.mq.DeadLetterRequestedEvent;
 import com.bank.paymentmessages.repository.PaymentMessageRepository;
@@ -352,7 +353,7 @@ class PaymentMessageServiceTest {
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
         when(repository.save(any(PaymentMessage.class))).thenAnswer(i -> i.getArgument(0));
 
-        service.updateStatus(1L, PaymentMessageStatus.DEAD_LETTER);
+        service.updateStatus(1L, PaymentMessageStatus.DEAD_LETTER, null);
 
         // Rien n'est envoyé au broker tant que la transaction n'est pas committée :
         // c'est DeadLetterDispatcher qui publiera et posera dlqPublishedAt.
@@ -368,14 +369,84 @@ class PaymentMessageServiceTest {
         when(repository.findById(1L)).thenReturn(Optional.of(entity));
         when(repository.save(any(PaymentMessage.class))).thenAnswer(i -> i.getArgument(0));
 
-        PaymentMessageDto dto = service.updateStatus(1L, PaymentMessageStatus.DEAD_LETTER);
+        PaymentMessageDto dto = service.updateStatus(1L, PaymentMessageStatus.DEAD_LETTER, null);
 
         assertThat(dto.getStatus()).isEqualTo(PaymentMessageStatus.DEAD_LETTER);
         verify(events).publishEvent(any(DeadLetterRequestedEvent.class));
 
         // Déjà en DEAD_LETTER : le second appel ne redemande pas de publication.
-        service.updateStatus(1L, PaymentMessageStatus.DEAD_LETTER);
+        service.updateStatus(1L, PaymentMessageStatus.DEAD_LETTER, null);
 
         verify(events).publishEvent(any(DeadLetterRequestedEvent.class));
+    }
+
+    @Test
+    void updateStatusShouldRejectTransitionForbiddenByStateMachine() {
+        PaymentMessage entity = PaymentMessage.builder()
+                .id(1L).messageId("m1").reference("R1")
+                .status(PaymentMessageStatus.RECEIVED).retryCount(0).build();
+        when(repository.findById(1L)).thenReturn(Optional.of(entity));
+
+        // Aucune tentative n'a eu lieu : un abandon direct n'a pas de sens.
+        assertThatThrownBy(() -> service.updateStatus(1L, PaymentMessageStatus.DEAD_LETTER, null))
+                .isInstanceOf(InvalidStatusTransitionException.class);
+
+        verify(repository, never()).save(any());
+        verify(events, never()).publishEvent(any(DeadLetterRequestedEvent.class));
+    }
+
+    @Test
+    void updateStatusShouldRejectAnyTransitionOutOfTerminalStatus() {
+        PaymentMessage entity = PaymentMessage.builder()
+                .id(1L).messageId("m1").reference("R1")
+                .status(PaymentMessageStatus.PROCESSED).retryCount(0).build();
+        when(repository.findById(1L)).thenReturn(Optional.of(entity));
+
+        assertThatThrownBy(() -> service.updateStatus(1L, PaymentMessageStatus.RECEIVED, null))
+                .isInstanceOf(InvalidStatusTransitionException.class);
+
+        verify(repository, never()).save(any());
+    }
+
+    /** Rejouer la même commande ne doit pas produire d'erreur, ni consommer de version. */
+    @Test
+    void updateStatusShouldBeNeutralWhenStatusIsUnchanged() {
+        PaymentMessage entity = PaymentMessage.builder()
+                .id(1L).messageId("m1").reference("R1")
+                .status(PaymentMessageStatus.PROCESSED).retryCount(0).build();
+        when(repository.findById(1L)).thenReturn(Optional.of(entity));
+
+        PaymentMessageDto dto = service.updateStatus(1L, PaymentMessageStatus.PROCESSED, null);
+
+        assertThat(dto.getStatus()).isEqualTo(PaymentMessageStatus.PROCESSED);
+        verify(repository, never()).save(any());
+    }
+
+    @Test
+    void updateStatusShouldKeepReasonAsErrorMessageOnFailureStatus() {
+        PaymentMessage entity = PaymentMessage.builder()
+                .id(1L).messageId("m1").reference("R1")
+                .status(PaymentMessageStatus.RECEIVED).retryCount(0).build();
+        when(repository.findById(1L)).thenReturn(Optional.of(entity));
+        when(repository.save(any(PaymentMessage.class))).thenAnswer(i -> i.getArgument(0));
+
+        service.updateStatus(1L, PaymentMessageStatus.FAILED, "IBAN créditeur invalide");
+
+        assertThat(entity.getErrorMessage()).isEqualTo("IBAN créditeur invalide");
+    }
+
+    /** Un retour à un statut sain ne doit pas laisser un diagnostic obsolète attaché. */
+    @Test
+    void updateStatusShouldClearErrorMessageWhenLeavingFailure() {
+        PaymentMessage entity = PaymentMessage.builder()
+                .id(1L).messageId("m1").reference("R1")
+                .status(PaymentMessageStatus.FAILED).retryCount(1)
+                .errorMessage("Validation en échec").build();
+        when(repository.findById(1L)).thenReturn(Optional.of(entity));
+        when(repository.save(any(PaymentMessage.class))).thenAnswer(i -> i.getArgument(0));
+
+        service.updateStatus(1L, PaymentMessageStatus.PROCESSED, "Résolu manuellement");
+
+        assertThat(entity.getErrorMessage()).isNull();
     }
 }
