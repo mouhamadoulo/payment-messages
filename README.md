@@ -104,13 +104,14 @@ Documentation détaillée dans [docs/architecture/](docs/architecture/) :
 - ✅ Gestion centralisée des erreurs
 - ✅ Métriques et santé (Actuator)
 - ✅ Cycle de vie à 4 statuts (RECEIVED → PROCESSED / FAILED → DEAD_LETTER)
+- ✅ Simulation d'envoi : dépôt de messages de test sur la file d'entrée configurée, cadencé et borné
 
 ### Frontend
 
-- ✅ Scaffold Angular 22 standalone
-- ❌ Dashboard (liste + filtres) — à implémenter
-- ❌ Recherche et filtrage — à implémenter
-- ❌ Consultation du détail — à implémenter
+- ✅ Tableau de bord : KPI, volume horaire, répartitions par statut et par type, alertes
+- ✅ Liste des messages : filtres serveur (statut, date, type, recherche), tri, pagination, tiroir de détail
+- ✅ Consultation du détail : métadonnées, payload brut, rejeu et changement de statut
+- ✅ Simulation d'envoi : modèles de payload, envoi unitaire ou en masse, suivi de publication
 
 ---
 
@@ -190,6 +191,8 @@ Variables optionnelles (valeurs par défaut entre parenthèses) :
 | `MQ_DLQ_RECOVERY_ENABLED` | Reprise planifiée des `DEAD_LETTER` non republiés (`true`) |
 | `MQ_DLQ_RECOVERY_INTERVAL` | Période de la reprise en ms (`60000`) |
 | `MQ_DLQ_RECOVERY_BATCH_SIZE` | Taille de lot de la reprise (`100`) |
+| `SIMULATION_ENABLED` | Simulation d'envoi (`true`) — à couper là où la file d'entrée porte un vrai flux |
+| `SIMULATION_MAX_COUNT` / `SIMULATION_MAX_RATE` | Bornes d'un envoi de test (`1000` messages / `200` msg/s) |
 | `CORS_ALLOWED_ORIGINS` | Origines CORS autorisées (`http://localhost:4200`) |
 | `MAX_PAGE_SIZE` | Borne haute de pagination (`200`) |
 | `REQUEST_TIMEOUT` / `CONNECTION_TIMEOUT` | Délais maximaux (`15s` / `5s`) |
@@ -266,6 +269,19 @@ Base path : `/api/v1/messages`
 | `GET` | `/api/v1/messages/batch/retry-failed/{taskId}` | Suivi de la relance batch |
 | `POST` | `/api/v1/messages/{id}/retry` | Relance individuelle |
 | `PUT` | `/api/v1/messages/{id}/status` | Mise à jour du statut — corps `{ "status": "…", "reason": "…" }` |
+
+Simulation d'envoi — base path `/api/v1/simulation` :
+
+| Méthode | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/simulation/config` | File visée et plafonds (nombre de messages, cadence) |
+| `POST` | `/api/v1/simulation/sends` | Dépôt de messages de test sur la file d'entrée (202 + `taskId`) |
+| `GET` | `/api/v1/simulation/sends/{taskId}` | Suivi de l'envoi |
+
+Le payload est publié **tel quel** sur la file : il repasse par le consommateur applicatif,
+avec la même validation et les mêmes rejets. Ces endpoints n'écrivent rien en base.
+La destination n'est pas un paramètre : c'est toujours `ibm.mq.queue`, la seule file consommée
+par l'application. À couper via `app.simulation.enabled` là où cette file porte un vrai flux.
 
 Les erreurs suivent le format `application/problem+json` (RFC 9457) et portent un
 `correlationId` repris de l'en-tête `X-Request-Id`.

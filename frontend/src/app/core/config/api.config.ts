@@ -7,5 +7,9 @@ export const API_CONFIG = {
   /** types présents en base : le filtre par type s'applique à toute la table */
   messageTypes: '/messages/types',
   batchRetry: '/messages/batch/retry-failed',
-  config: '/config'
+  config: '/config',
+  /** bornes et files admises par la simulation d'envoi */
+  simulationConfig: '/simulation/config',
+  /** dépôt de messages de test : 202 + taskId, suivi sur `/{taskId}` */
+  simulationSends: '/simulation/sends'
 };

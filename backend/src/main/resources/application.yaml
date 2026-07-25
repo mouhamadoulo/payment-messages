@@ -98,6 +98,14 @@ app:
     batch-size: ${BATCH_RETRY_SIZE:500}
     max-messages: ${BATCH_RETRY_MAX:100000}
 
+  # Simulation d'envoi : dépôt de messages de test sur la file d'entrée depuis l'IHM.
+  # Les bornes sont serveur — l'IHM les lit pour cadrer sa saisie, elle ne les fixe pas.
+  # À couper sur un environnement où la file d'entrée porte un vrai flux.
+  simulation:
+    enabled: ${SIMULATION_ENABLED:true}
+    max-count: ${SIMULATION_MAX_COUNT:1000}
+    max-rate: ${SIMULATION_MAX_RATE:200}
+
   # Rétention : purge planifiée des messages PROCESSED. Désactivée par défaut,
   # la suppression étant irréversible (cf. MessageRetentionJob).
   retention:

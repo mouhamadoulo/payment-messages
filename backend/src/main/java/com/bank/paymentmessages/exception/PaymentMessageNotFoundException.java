@@ -17,4 +17,10 @@ public class PaymentMessageNotFoundException extends RuntimeException {
 
         return new PaymentMessageNotFoundException("Tâche de rejeu introuvable : " + taskId);
     }
+
+    /** Envoi de test inconnu ou déjà oublié de l'historique. */
+    public static PaymentMessageNotFoundException forSimulationTask(String taskId) {
+
+        return new PaymentMessageNotFoundException("Envoi de test introuvable : " + taskId);
+    }
 }

@@ -38,6 +38,13 @@ app:
   cors:
     allowed-origins: http://localhost:4200
 
+  # Simulation d'envoi (onglet « Simulation d'envoi » de l'IHM) : dépose de vrais messages
+  # sur la file d'entrée. Laissée active en développement, à couper ailleurs.
+  simulation:
+    enabled: true
+    max-count: 1000
+    max-rate: 200
+
 server:
   port: 8080
 

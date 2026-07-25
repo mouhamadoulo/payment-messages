@@ -383,6 +383,137 @@ version consommée).
 
 ---
 
+## Simulation d'envoi
+
+**Base path :** `/api/v1/simulation`
+
+Dépôt de messages de test sur la file d'entrée IBM MQ, dans le rôle que tiennent les
+applications de back-office du flux réel. **Rien n'est écrit en base par ces endpoints** : le
+payload est publié tel quel sur la file et repasse par le consommateur applicatif, avec la même
+désérialisation, la même validation et les mêmes rejets. C'est ce qui rend l'écran utile — et
+pourquoi il se coupe par configuration (`app.simulation.enabled`) là où la file porte un vrai
+flux.
+
+**La destination n'est pas un paramètre.** Les messages partent toujours sur `ibm.mq.queue`, la
+seule file que l'application consomme : elle est *exposée* par `GET /config` pour affichage, pas
+*choisie* par l'appelant. Laisser le client la fournir aurait ouvert l'écriture sur les autres
+destinations du gestionnaire de files, pour un besoin qui n'existe pas — un dépôt ailleurs ne
+produirait rien d'observable.
+
+Restent deux garde-fous, côté serveur :
+
+- le nombre de messages et la cadence sont bornés (`app.simulation.max-count` / `max-rate`) ;
+- un seul envoi peut être en vol : deux envois concurrents ne tiendraient plus aucune des deux
+  cadences demandées. Un second appel rend l'envoi déjà en cours.
+
+---
+
+### GET /api/v1/simulation/config
+
+File visée et bornes. L'IHM s'en sert pour afficher la destination et cadrer sa saisie ; le
+serveur refuse de toute façon ce qui dépasse les bornes.
+
+**Réponse** `200 OK`
+
+```json
+{
+  "enabled": true,
+  "queue": "PAYMENT.REQUEST.QUEUE",
+  "maxCount": 1000,
+  "maxRate": 200
+}
+```
+
+---
+
+### POST /api/v1/simulation/sends
+
+Dépose `count` copies du payload sur la file d'entrée, à la cadence demandée. La publication
+s'exécute en tâche de fond : la réponse est immédiate et rend un `taskId` à suivre.
+
+**Corps** — aucun champ de destination : elle vient de la configuration.
+
+| Champ | Type | Requis | Défaut | Description |
+|---|---|---|---|---|
+| `payload` | `String` (≤ 64 Ko) | Oui | — | Publié **tel quel**. Un payload illisible est un cas de test valide : il sera rejeté en `FAILED` par le consommateur |
+| `count` | `int ≥ 1` | Non | `1` | Plafonné par `app.simulation.max-count` |
+| `ratePerSecond` | `int ≥ 1` | Non | `20` | Plafonné par `app.simulation.max-rate` |
+| `uniqueIds` | `boolean` | Non | `true` | Réécrit `messageId` sur chaque copie |
+
+> `uniqueIds` n'est pas un confort : l'ingestion est **idempotente sur `messageId`**. Sans
+> réécriture, les copies d'un envoi en masse sont traitées comme des redélivrances du même
+> message et une seule ligne est persistée. La réécriture ne s'applique qu'aux payloads qui
+> sont des objets JSON — un payload illisible part inchangé, c'est précisément ce qu'on veut
+> faire consommer.
+
+**Requête**
+
+```json
+{
+  "payload": "{\"messageId\":\"MSG-1\",\"messageType\":\"SEPA_CREDIT_TRANSFER\",\"reference\":\"REF-1\",\"payment\":{\"transactionId\":\"TX-1\",\"amount\":150.00,\"currency\":\"EUR\",\"executionDate\":\"2026-07-25\"},\"status\":\"RECEIVED\"}",
+  "count": 200,
+  "ratePerSecond": 20,
+  "uniqueIds": true
+}
+```
+
+**Réponse** `202 Accepted`
+
+```json
+{
+  "taskId": "8f2c1b74-3a51-4d0e-9c11-7b0a5e2d4c93",
+  "state": "RUNNING",
+  "destination": "PAYMENT.REQUEST.QUEUE",
+  "total": 200,
+  "sent": 0,
+  "published": 0,
+  "failed": 0,
+  "startedAt": "2026-07-25T10:00:00+02:00",
+  "finishedAt": null,
+  "error": null
+}
+```
+
+**Erreurs**
+
+| Code | Cas |
+|---|---|
+| `400 Bad Request` | `payload` vide ou trop long, `count`/`ratePerSecond` < 1 ou au-delà du plafond |
+| `503 Service Unavailable` | Simulation désactivée (`app.simulation.enabled: false`) |
+
+---
+
+### GET /api/v1/simulation/sends/{taskId}
+
+Suit l'avancement d'un envoi.
+
+**Réponse** `200 OK`
+
+```json
+{
+  "taskId": "8f2c1b74-3a51-4d0e-9c11-7b0a5e2d4c93",
+  "state": "COMPLETED",
+  "destination": "PAYMENT.REQUEST.QUEUE",
+  "total": 200,
+  "sent": 200,
+  "published": 200,
+  "failed": 0,
+  "startedAt": "2026-07-25T10:00:00+02:00",
+  "finishedAt": "2026-07-25T10:00:10+02:00",
+  "error": null
+}
+```
+
+`state` : `RUNNING` · `COMPLETED` · `FAILED`.
+
+> Les compteurs portent sur la **publication**, pas sur le traitement : `published` signifie
+> que le broker a accepté le message. Son sort applicatif — persisté en `RECEIVED` ou rejeté
+> en `FAILED` — se lit dans `GET /api/v1/messages`.
+
+**Erreur** `404 Not Found` — envoi inconnu ou sorti de l'historique (20 derniers).
+
+---
+
 ## Modèles
 
 ### PaymentMessageStatus

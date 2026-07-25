@@ -44,6 +44,7 @@ com.bank.paymentmessages
 │   ├── JmsConfig.java                  # Factory de listeners + ErrorHandler
 │   ├── CacheConfig.java                # @EnableCaching (messageStats, dashboardStats, messageTypes)
 │   ├── BatchRetryExecutorConfig.java   # Exécuteur dédié au rejeu massif
+│   ├── SimulationExecutorConfig.java   # Exécuteur dédié aux envois de test
 │   ├── CorsConfig.java                 # Politique CORS sur /api/**
 │   ├── CorsProperties.java             # app.cors.allowed-origins
 │   ├── MetricsConfig.java              # Jauges métier (pending, failed, dead letter)
@@ -51,13 +52,16 @@ com.bank.paymentmessages
 │   └── OpenApiConfig.java              # Métadonnées du contrat OpenAPI
 ├── controller/
 │   ├── PaymentMessageController.java   # Endpoints REST
-│   └── ConfigController.java           # Configuration MQ non sensible pour l'IHM
+│   ├── ConfigController.java           # Configuration MQ non sensible pour l'IHM
+│   └── SimulationController.java       # Dépôt de messages de test sur une file
 ├── dto/
 │   ├── api/
 │   │   ├── PaymentMessageDto.java          # DTO de détail (payload inclus)
 │   │   ├── PaymentMessageSummaryDto.java   # DTO de liste (sans payload)
 │   │   ├── CursorPageDto.java              # Page paginée par curseur
-│   │   └── UpdateStatusRequest.java        # Corps de PUT /{id}/status ({status, reason})
+│   │   ├── UpdateStatusRequest.java        # Corps de PUT /{id}/status ({status, reason})
+│   │   ├── SimulationSendRequest.java      # Corps de POST /simulation/sends
+│   │   └── SimulationConfigDto.java        # File visée et plafonds de la simulation
 │   └── mq/
 │       ├── PaymentMessageEvent.java    # DTO entrant (MQ)
 │       ├── Payment.java                # Détails du paiement
@@ -77,7 +81,8 @@ com.bank.paymentmessages
 │   ├── DeadLetterPublisher.java        # Envoi sur la DLQ applicative
 │   ├── DeadLetterRequestedEvent.java   # Demande de publication DLQ
 │   ├── DeadLetterDispatcher.java       # Publication DLQ après commit
-│   └── DeadLetterRecoveryJob.java      # Reprise des DLQ non confirmées
+│   ├── DeadLetterRecoveryJob.java      # Reprise des DLQ non confirmées
+│   └── SimulationPublisher.java        # Dépôt d'un message de test sur une file
 ├── repository/
 │   ├── PaymentMessageRepository.java   # Repository JPA
 │   └── PaymentMessageSummary.java      # Projection de liste (sans payload)
@@ -86,6 +91,8 @@ com.bank.paymentmessages
 │   ├── BatchRetryService.java          # Rejeu massif par lots, en tâche de fond
 │   ├── BatchRetryTask.java             # État d'un rejeu massif
 │   ├── Cursor.java                     # Curseur de pagination keyset
+│   ├── SimulationService.java          # Envois de test cadencés et bornés
+│   ├── SimulationTask.java             # État d'un envoi de test
 │   └── MessageRetentionJob.java        # Purge planifiée des PROCESSED
 └── web/
     └── CorrelationIdFilter.java        # X-Request-Id + MDC sur chaque requête
@@ -168,6 +175,36 @@ Le rejeu global ne charge plus toute la table : il enchaîne des lots bornés
 exécuteur mono-thread dédié. L'API répond `202 Accepted` avec un `taskId` suivi par
 `GET /batch/retry-failed/{taskId}`. Un seul rejeu en vol à la fois ; le plafond
 `app.batch-retry.max-messages` interrompt un rejeu trop volumineux (`truncated`).
+
+### 5.2.2 Simulation d'envoi (`SimulationService`, `SimulationPublisher`)
+
+Dépôt de messages de test sur une file, dans le rôle que tiennent les applications de
+back-office du flux réel. **Le service n'écrit rien en base** : le payload est publié tel quel
+et repasse par `PaymentMessageListener`, avec la même désérialisation, la même validation et
+les mêmes rejets — un payload volontairement illisible produit donc une vraie ligne `FAILED`.
+
+**La destination n'est pas un paramètre d'API** : c'est `ibm.mq.queue`, la seule file consommée
+par l'application. `GET /simulation/config` l'expose pour affichage, l'IHM ne la choisit pas.
+Accepter un nom de file venu du client aurait ouvert l'écriture sur n'importe quelle destination
+du gestionnaire, pour un besoin inexistant — un dépôt ailleurs ne produirait rien d'observable.
+
+La publication est cadencée (`ratePerSecond`) sur un exécuteur mono-thread dédié : l'API répond
+`202 Accepted` avec un `taskId` suivi par `GET /simulation/sends/{taskId}`. Restent deux
+garde-fous côté serveur, l'IHM n'étant pas une frontière de confiance :
+
+- **bornes** `app.simulation.max-count` / `max-rate` ;
+- **un seul envoi en vol** : deux envois concurrents ne tiendraient plus aucune des deux
+  cadences demandées.
+
+`uniqueIds` (vrai par défaut) réécrit le champ `messageId` de chaque copie. Ce n'est pas un
+confort : `saveMessage` est idempotent sur ce champ, sans réécriture les copies d'un envoi en
+masse seraient traitées comme des redélivrances et une seule ligne serait persistée. La
+réécriture ne s'applique qu'aux payloads qui sont des objets JSON — un payload illisible part
+inchangé, c'est précisément ce qu'on veut faire consommer.
+
+`app.simulation.enabled` coupe la fonctionnalité (`503`) là où la file d'entrée porte un vrai
+flux. Compteurs Micrometer : `payment.simulation.messages.published`,
+`payment.simulation.publish.failures`.
 
 ### 5.3 Repository (`PaymentMessageRepository`)
 
@@ -321,6 +358,9 @@ Variables optionnelles :
 | `STATS_CACHE_TTL` | `15s` | Durée de vie des caches de lecture (`/stats`, `/stats/dashboard`, `/types`) et du `Cache-Control` correspondant |
 | `BATCH_RETRY_SIZE` | `500` | Taille de lot du rejeu massif |
 | `BATCH_RETRY_MAX` | `100000` | Plafond de sécurité d'un rejeu massif |
+| `SIMULATION_ENABLED` | `true` | Simulation d'envoi. À passer à `false` là où la file d'entrée porte un vrai flux : l'API répond alors `503` |
+| `SIMULATION_MAX_COUNT` | `1000` | Nombre maximal de messages par envoi de test |
+| `SIMULATION_MAX_RATE` | `200` | Cadence maximale d'un envoi de test (msg/s) |
 | `RETENTION_ENABLED` | `false` | Purge planifiée des `PROCESSED` |
 | `RETENTION_PROCESSED_DAYS` | `90` | Âge au-delà duquel un `PROCESSED` est purgeable |
 | `RETENTION_BATCH_SIZE` / `RETENTION_MAX_PER_RUN` | `500` / `50000` | Bornes de la purge |

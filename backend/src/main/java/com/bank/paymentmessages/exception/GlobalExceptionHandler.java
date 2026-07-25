@@ -66,6 +66,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     }
 
     /**
+     * Simulation d'envoi coupée : la requête est légitime, c'est la fonctionnalité qui est
+     * indisponible sur cet environnement — 503 et non 403, aucune autorisation n'est en jeu.
+     */
+    @ExceptionHandler(SimulationDisabledException.class)
+    public ProblemDetail handleSimulationDisabled(SimulationDisabledException ex) {
+        return problem(HttpStatus.SERVICE_UNAVAILABLE, "simulation-disabled",
+                "Simulation indisponible", ex.getMessage());
+    }
+
+    /**
      * Verrou optimiste perdu : un autre appel a modifié la même ligne entre-temps.
      * Le client doit recharger le message et rejouer son action plutôt que d'écraser
      * silencieusement la modification concurrente.

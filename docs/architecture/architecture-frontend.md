@@ -37,7 +37,8 @@ frontend/src/
     │   ├── interceptors/resilience.interceptor.ts # Délai maximal + rejeu des GET
     │   └── services/                        # NotificationService, ThemeService
     ├── features/
-    │   └── messages/                        # Domaine : pages, composants, service, modèles
+    │   ├── messages/                        # Domaine : pages, composants, service, modèles
+    │   └── simulation/                      # Dépôt de messages de test sur IBM MQ
     ├── layout/                              # header / sidebar / main-layout
     └── shared/                              # status-badge, ui/icon, kpi-card, config, pipes
 ```
@@ -76,9 +77,12 @@ flowchart LR
 | `GET` | `/api/v1/messages/types` | Types présents en base (sélecteur de la barre de filtres) |
 | `GET` | `/api/v1/messages/{id}` | Détail d'un message (payload inclus) |
 | `GET` | `/api/v1/config` | Configuration MQ non sensible |
+| `GET` | `/api/v1/simulation/config` | File visée et bornes de la simulation d'envoi |
+| `GET` | `/api/v1/simulation/sends/{taskId}` | Avancement d'un envoi de test |
 | `DELETE` | `/api/v1/messages/{id}` | Suppression |
 | `POST` | `/api/v1/messages/batch/retry-failed` | Rejeu massif, suivi par `taskId` |
 | `POST` | `/api/v1/messages/{id}/retry` | Rejeu individuel |
+| `POST` | `/api/v1/simulation/sends` | Dépôt de messages de test, suivi par `taskId` |
 | `PUT` | `/api/v1/messages/{id}/status` | Changement de statut (`ADMIN`), corps `{ status, reason }` |
 
 Le sélecteur de statut ne propose que les transitions autorisées (`STATUS_TRANSITIONS` dans
@@ -139,3 +143,45 @@ motif facultatif. Le serveur reste l'autorité : une transition interdite répon
 - **Budgets de build** (`angular.json`) : `initial` et `allScript`, ce dernier couvrant la
   somme des lots différés — sans lui, une régression de poids passait inaperçue dès qu'elle
   tombait dans un *chunk* paresseux.
+
+---
+
+## 8. Simulation d'envoi
+
+Route `/simulation`, lot paresseux dédié. L'écran dépose des messages de test sur une file
+IBM MQ, dans le rôle que tiennent les applications de back-office du flux réel.
+
+**Rien n'est court-circuité.** Le payload part tel quel sur la file et repasse par le
+consommateur applicatif : même désérialisation, même validation, mêmes rejets. C'est ce qui
+rend l'écran utile — un message y devient une ligne `RECEIVED` (ou `FAILED` si le payload est
+invalide) exactement comme un message venu d'un vrai producteur.
+
+- **Le serveur cadence, le client interroge.** `POST /simulation/sends` répond `202` avec un
+  `taskId` ; l'avancement est relu toutes les 500 ms jusqu'à l'état terminal. L'IHM ne compte
+  rien elle-même : deux onglets ouverts voient le même envoi, et un rechargement de page n'en
+  invente pas un second.
+- **La file de destination est affichée, jamais choisie.** L'API ne prend pas de destination en
+  paramètre : les messages partent sur la file configurée, que `GET /simulation/config` expose
+  pour affichage. Le champ correspondant est un encart en lecture seule, pas un `<select>` —
+  proposer un choix inexistant serait mentir sur ce que fait le bouton. Le nom affiché vient de
+  `SimulationService.queue()`, qui replie sur la configuration MQ (`GET /config`, déjà chargée
+  par le bandeau latéral) : les deux exposent la même propriété serveur (`ibm.mq.queue`), et le
+  repli garde le champ lisible tant que la configuration de simulation n'a pas répondu.
+- **Les bornes viennent du serveur** (même endpoint) : plafond du nombre de messages et de la
+  cadence. Le formulaire s'y ajuste, mais c'est le serveur qui refuse — une borne recopiée en
+  dur aurait dérivé au premier changement de configuration.
+- **Les compteurs disent « publiés », pas « traités ».** Ils mesurent l'acceptation par le
+  broker ; le sort applicatif se lit dans l'onglet Messages, et l'écran renvoie vers lui plutôt
+  que d'afficher un succès qu'il ne peut pas constater.
+- **Modèles de payload** (`features/simulation/config/templates.ts`) écrits sur le contrat de
+  la file d'entrée (`PaymentMessageEvent`), **pas** sur celui de l'API REST : `executionDate`
+  y est une `LocalDate` et `createdAt` une `LocalDateTime` **sans décalage horaire**, à
+  l'inverse des horodatages de l'API. Deux modèles sont invalides à dessein et couvrent les
+  deux chemins de rejet définitif — JSON illisible et validation en échec.
+- **`uniqueIds` est cochée par défaut** : l'ingestion est idempotente sur `messageId`, sans
+  réécriture un envoi en masse ne produirait qu'une seule ligne. La case reste décochable,
+  c'est justement de quoi tester la déduplication.
+- **L'historique est celui de l'onglet**, pas un journal : le serveur ne retient que les
+  derniers envois, le temps d'en suivre l'avancement. L'en-tête de la carte le dit.
+- **Écran coupable par configuration.** Quand `app.simulation.enabled` est `false`, l'API
+  répond `503` et l'écran affiche un bandeau — il ne prétend pas fonctionner à vide.

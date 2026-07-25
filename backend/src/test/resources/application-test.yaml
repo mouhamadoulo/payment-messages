@@ -38,6 +38,11 @@ app:
   http-cache:
     stats-ttl: 15s
 
+  # Aucun broker ne tourne pendant `verify` : la simulation n'aurait nulle part où publier.
+  # Le service est testé unitairement (SimulationServiceTest), publisher simulé.
+  simulation:
+    enabled: false
+
 server:
   port: 0
 
