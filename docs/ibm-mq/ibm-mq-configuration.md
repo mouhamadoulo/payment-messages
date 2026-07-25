@@ -10,12 +10,26 @@
 | Utilisateur | `app` |
 | Mot de passe | `REDACTED` |
 
-## 2. Queue
+## 2. Files
 
-| Propriété | Valeur (dev) |
-|---|---|
-| Queue | `DEV.QUEUE.1` |
-| Type | File locale |
+Les trois files sont créées à la **création du queue manager** par
+`infra/mq/payment-queues.mqsc`, monté dans le conteneur MQ (cf. `docker-compose.yaml`). Une
+modification du script ne s'applique donc qu'après recréation du conteneur, ou en rejouant le
+script à la main.
+
+| File | Type | Rôle | Attributs notables |
+|---|---|---|---|
+| `PAYMENT.REQUEST.QUEUE` | QLOCAL | File d'entrée, la **seule** consommée par l'application (`ibm.mq.queue`) | `DEFPSIST(YES)`, `BOTHRESH(5)`, `BOQNAME('PAYMENT.BACKOUT.QUEUE')` |
+| `PAYMENT.DLQ.QUEUE` | QLOCAL | Dead Letter Queue **applicative** (`ibm.mq.dlq-queue`) : payload republié quand un message dépasse `max-retries` rejeux | `DEFPSIST(YES)` |
+| `PAYMENT.BACKOUT.QUEUE` | QLOCAL | File de backout du **gestionnaire de files** : messages empoisonnés écartés après `BOTHRESH` redélivrances | `DEFPSIST(YES)` |
+
+> Les deux mécanismes d'écartement ne se confondent pas. `PAYMENT.BACKOUT.QUEUE` est géré par
+> le queue manager et borne les redélivrances d'une **erreur transitoire** ; `PAYMENT.DLQ.QUEUE`
+> est géré par l'application et reçoit les messages abandonnés après épuisement des **rejeux
+> métier** (`/retry`), avec passage en `DEAD_LETTER` en base.
+
+Le script accorde en outre les droits d'accès sur `PAYMENT.**` à l'utilisateur applicatif `app`
+du conteneur de développement.
 
 ## 3. Configuration dans l'application
 
@@ -50,8 +64,7 @@ ce qui évite qu'un message soit marqué abandonné en base sans exister côté 
 
 `PAYMENT.REQUEST.QUEUE` déclare `BOTHRESH(5)` et `BOQNAME('PAYMENT.BACKOUT.QUEUE')` : au-delà de
 5 redélivrances, le queue manager écarte le message vers la file de backout au lieu de le laisser
-boucler indéfiniment sur les consommateurs.
-Les trois files sont créées au démarrage du conteneur MQ par `infra/mq/payment-queues.mqsc`.
+boucler indéfiniment sur les consommateurs (cf. §2).
 
 ### 3.2 Configuration exemple (application-dev.example.yaml)
 
@@ -65,7 +78,13 @@ ibm:
     password: REDACTED
     receive-timeout: 5000
     queue: PAYMENT.REQUEST.QUEUE
+    dlq-queue: PAYMENT.DLQ.QUEUE
+    max-retries: 3
 ```
+
+`dlq-queue` et `max-retries` n'ont pas de valeur par défaut dans `application.yaml` : sans elles
+le contexte ne démarre pas. Les clés `dlq-recovery.*` sont facultatives (valeurs par défaut
+ci-dessus).
 
 ---
 

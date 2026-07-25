@@ -24,23 +24,31 @@ routes entièrement paresseuses (`loadComponent`), état en **signaux**, mode *z
 ## 3. Structure
 
 ```
-frontend/src/
-├── main.ts                        # Bootstrap Angular
-├── styles/_tokens.scss            # Design tokens (couleurs, espacements, polices)
-└── app/
-    ├── app.ts                     # Racine : rend le gabarit applicatif
-    ├── app.config.ts              # Providers (router, HttpClient + intercepteurs, Material)
-    ├── app.routes.ts              # Routes paresseuses (loadComponent)
-    ├── core/                      # Singletons applicatifs
-    │   ├── config/api.config.ts             # Chemins d'API
-    │   ├── interceptors/api.interceptor.ts  # Préfixe /api/v1
-    │   ├── interceptors/resilience.interceptor.ts # Délai maximal + rejeu des GET
-    │   └── services/                        # NotificationService, ThemeService
-    ├── features/
-    │   ├── messages/                        # Domaine : pages, composants, service, modèles
-    │   └── simulation/                      # Dépôt de messages de test sur IBM MQ
-    ├── layout/                              # header / sidebar / main-layout
-    └── shared/                              # status-badge, ui/icon, kpi-card, config, pipes
+frontend/
+├── angular.json                   # Budgets de build, outputHashing, inlineCritical: false
+├── proxy.conf.json                # Relais /api → localhost:8080 pour `ng serve`
+├── Dockerfile                     # node:22-alpine → nginx:1.27-alpine (cf. §9)
+├── nginx.conf                     # Service statique, cache, relais /api → backend:8080
+├── security-headers.conf          # CSP et en-têtes, inclus dans chaque location
+└── src/
+    ├── main.ts                    # Bootstrap Angular
+    ├── styles/_tokens.scss        # Design tokens (couleurs, espacements, polices)
+    └── app/
+        ├── app.ts                 # Racine : rend le gabarit applicatif
+        ├── app.config.ts          # Providers (router, HttpClient + intercepteurs, Material)
+        ├── app.routes.ts          # Routes paresseuses (loadComponent)
+        ├── core/                  # Singletons applicatifs
+        │   ├── config/api.config.ts             # Chemins d'API
+        │   ├── interceptors/api.interceptor.ts  # Préfixe /api/v1
+        │   ├── interceptors/resilience.interceptor.ts # Délai maximal + rejeu des GET
+        │   └── services/                        # NotificationService, ThemeService
+        ├── features/
+        │   ├── messages/                        # Domaine : pages, composants, service, modèles
+        │   └── simulation/                      # Dépôt de messages de test sur IBM MQ
+        ├── layout/                              # header / sidebar / main-layout
+        └── shared/                              # status-badge, ui/icon, ui/kpi-card,
+                                                 # ui/auto-animate.directive, config/status.config,
+                                                 # pipes/date-format, util/payload.util
 ```
 
 ---
@@ -65,6 +73,13 @@ flowchart LR
   repli exponentiel, **sur `GET`/`HEAD` uniquement** — rejouer un `POST /retry` ou un
   `DELETE` doublerait l'effet métier.
 
+Les requêtes partent donc en `/api/v1/…`, sur l'origine du front : **jamais** vers un hôte
+codé en dur. Le relais vers le backend est assuré par un proxy, différent selon le mode
+d'exécution — `proxy.conf.json` pour `ng serve` (vers `http://localhost:8080`), le bloc
+`location /api/` de `nginx.conf` pour l'image de production (vers `http://backend:8080`).
+Cette même origine est aussi la raison pour laquelle le CORS ne joue en pratique que pour les
+appels directs au port de l'API.
+
 ---
 
 ## 5. Endpoints consommés
@@ -83,7 +98,7 @@ flowchart LR
 | `POST` | `/api/v1/messages/batch/retry-failed` | Rejeu massif, suivi par `taskId` |
 | `POST` | `/api/v1/messages/{id}/retry` | Rejeu individuel |
 | `POST` | `/api/v1/simulation/sends` | Dépôt de messages de test, suivi par `taskId` |
-| `PUT` | `/api/v1/messages/{id}/status` | Changement de statut (`ADMIN`), corps `{ status, reason }` |
+| `PUT` | `/api/v1/messages/{id}/status` | Changement de statut, corps `{ status, reason }` |
 
 Le sélecteur de statut ne propose que les transitions autorisées (`STATUS_TRANSITIONS` dans
 `shared/config/status.config.ts`, recopie de la machine à états du serveur) et recueille un
@@ -185,3 +200,56 @@ invalide) exactement comme un message venu d'un vrai producteur.
   derniers envois, le temps d'en suivre l'avancement. L'en-tête de la carte le dit.
 - **Écran coupable par configuration.** Quand `app.simulation.enabled` est `false`, l'API
   répond `503` et l'écran affiche un bandeau — il ne prétend pas fonctionner à vide.
+
+---
+
+## 9. Livraison et conteneurisation
+
+`frontend/Dockerfile` : image multi-étapes `node:22-alpine` → `nginx:1.27-alpine`. Aucun
+runtime Node en production — nginx sert des fichiers statiques et relaie `/api/`.
+
+### 9.1 Étape de build
+
+- **`npm ci` strict**, sans `--legacy-peer-deps` : le drapeau ne masquait qu'un
+  `@angular/animations` resté en arrière, dépendance depuis retirée du projet. Le conserver
+  ferait diverger l'image de ce que valide la CI.
+- **Copie ciblée** (`angular.json`, `tsconfig*`, `public/`, `src/`) plutôt que `COPY . .` :
+  seules les entrées du build invalident le cache. Modifier ce document, `proxy.conf.json` ou
+  `nginx.conf` ne relance plus `npm run build`.
+- **Précompression au build** : les `.js`/`.css`/`.html`/`.svg`/`.json` produits sont gzippés
+  au **niveau 9** et déposés à côté de l'original. Servis ensuite par `gzip_static`, ils
+  coûtent zéro CPU par requête, à un taux de compression inatteignable à la volée.
+
+### 9.2 Service nginx (`nginx.conf`)
+
+| Bloc | Politique de cache | Pourquoi |
+|---|---|---|
+| `location = /index.html` | `no-cache` | Seul fichier non haché : un exemplaire périmé pointerait vers des bundles supprimés au déploiement suivant, donc une page blanche jusqu'au vidage du cache navigateur |
+| Bundles hachés (`-<hash8>.js|css`) | `max-age=31536000, immutable` | `outputHashing: all` — le nom change avec le contenu, l'immutabilité est acquise |
+| Assets de `public/` (icônes, polices…) | `max-age=86400` | Nom stable : `immutable` y figerait une version pour un an |
+| `location /api/` | — | Relais vers `http://backend:8080`, via le résolveur DNS interne de Docker (`127.0.0.11`) pour que nginx démarre même si le backend n'est pas encore prêt |
+| `location /` | — | Repli SPA `try_files $uri $uri/ /index.html` |
+
+Le repli SPA provoque une **redirection interne** qui repasse par `location = /index.html` :
+le `no-cache` couvre donc aussi les routes Angular profondes.
+
+### 9.3 En-têtes de sécurité (`security-headers.conf`)
+
+Le fichier est `include` dans **chaque** `location`, sans exception. `add_header` n'est pas
+cumulatif en nginx : un bloc qui pose son propre `Cache-Control` écrase l'héritage, et la
+politique de sécurité disparaîtrait précisément sur les réponses qui portent le code.
+
+La CSP tient un `script-src 'self'` strict — possible uniquement parce que
+`optimization.styles.inlineCritical` est **désactivé** dans `angular.json` : cette optimisation
+émet un `<link … onload="…">`, gestionnaire en ligne qui imposerait `'unsafe-inline'`. En
+regard, `style-src` conserve `'unsafe-inline'` (Angular injecte les styles de composant en
+`<style>` à l'exécution) et `font-src` conserve `fonts.gstatic.com` (les règles `@font-face`
+sont intégrées au build, les `.woff2` restent téléchargés).
+
+`server_tokens off` retire la version de nginx des en-têtes et des pages d'erreur.
+
+### 9.4 Sonde de disponibilité
+
+L'image déclare un `HEALTHCHECK` (`wget --spider http://127.0.0.1/`) : sans lui,
+`docker compose up --wait` — le test de fumée de la CI — n'attendrait pas l'état *healthy* du
+conteneur. `wget` vient de busybox, déjà présent dans l'image alpine.

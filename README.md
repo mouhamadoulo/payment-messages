@@ -74,10 +74,12 @@ Documentation détaillée dans [docs/architecture/](docs/architecture/) :
 
 | Technologie | Version |
 |---|---|
-| Angular | 22 (standalone) |
+| Angular | 22 (standalone, zoneless) |
+| Angular Material + CDK | 22 |
 | TypeScript | 6 |
 | RxJS | 7.8 |
 | Vitest | 4 |
+| nginx (image de production) | 1.27-alpine |
 
 ### Infrastructure
 
@@ -92,14 +94,16 @@ Documentation détaillée dans [docs/architecture/](docs/architecture/) :
 
 ### Backend
 
-- ✅ Consommation des messages IBM MQ (JMS Listener)
-- ✅ Persistance en base PostgreSQL
-- ✅ API REST paginée avec filtres (statut, date)
+- ✅ Consommation des messages IBM MQ (JMS Listener, session transactée, idempotence sur `messageId`)
+- ✅ Persistance en base PostgreSQL, schéma piloté par Flyway
+- ✅ API REST paginée avec filtres serveur (statut, date, type, recherche) + pagination par curseur
 - ✅ Consultation individuelle des messages
-- ✅ Statistiques par statut
+- ✅ Statistiques par statut et agrégats du tableau de bord, calculés en SQL et mis en cache
 - ✅ Suppression de messages
-- ✅ Retry individuel et batch des messages en échec
-- ✅ Mise à jour du statut des messages
+- ✅ Retry individuel et batch des messages en échec (batch asynchrone, par lots bornés)
+- ✅ Dead Letter Queue applicative, publication après commit et reprise planifiée
+- ✅ Mise à jour du statut des messages (machine à états appliquée côté serveur)
+- ✅ Rétention planifiée des messages traités (désactivée par défaut)
 - ✅ Documentation Swagger UI (OpenAPI)
 - ✅ Gestion centralisée des erreurs
 - ✅ Métriques et santé (Actuator)
@@ -121,29 +125,39 @@ Documentation détaillée dans [docs/architecture/](docs/architecture/) :
 payment-messages
 ├── backend/
 │   ├── src/main/java/com/bank/paymentmessages/
-│   │   ├── config/          # Configuration Jackson
-│   │   ├── controller/      # REST Controller
-│   │   ├── dto/             # DTOs API et MQ
-│   │   ├── entity/          # Entité JPA + Enum
-│   │   ├── exception/       # Gestion des erreurs
+│   │   ├── config/          # JMS, cache, CORS, ETag, métriques, OpenAPI, exécuteurs, Jackson
+│   │   ├── controller/      # REST : messages, configuration MQ, simulation
+│   │   ├── dto/             # api/ (contrat REST) et mq/ (contrat de la file)
+│   │   ├── entity/          # Entité JPA + machine à états des statuts
+│   │   ├── exception/       # ProblemDetail (RFC 9457) et exceptions métier
 │   │   ├── mapper/          # Mapping Entity ↔ DTO
-│   │   ├── mq/              # JMS Listener
-│   │   ├── repository/      # Spring Data JPA
-│   │   └── service/         # Logique métier
+│   │   ├── mq/              # JMS Listener, publication DLQ, reprise, publication de test
+│   │   ├── repository/      # Spring Data JPA + projection de liste
+│   │   ├── service/         # Logique métier, rejeu massif, simulation, rétention
+│   │   └── web/             # CorrelationIdFilter (X-Request-Id + MDC)
 │   ├── src/main/resources/
+│   │   ├── db/migration/    # Migrations Flyway (PostgreSQL)
 │   │   ├── application.yaml
-│   │   ├── application-dev.yaml
+│   │   ├── application-dev.yaml          # git-ignoré, à créer
 │   │   └── application-dev.example.yaml
-│   ├── src/test/            # Tests unitaires
+│   ├── src/test/            # *Test (Surefire, H2) et *IT (Failsafe, Testcontainers)
 │   ├── pom.xml
 │   └── Dockerfile
 ├── frontend/
-│   └── src/app/             # Angular standalone
+│   ├── src/app/             # Angular standalone (core, features, layout, shared)
+│   ├── proxy.conf.json      # Relais /api → :8080 pour `ng serve`
+│   ├── nginx.conf           # Service statique + relais /api en production
+│   ├── security-headers.conf
+│   └── Dockerfile
+├── infra/
+│   ├── mq/                  # payment-queues.mqsc (création des files)
+│   └── load/                # Tirs de charge : MqInjector.java, k6-api.js
 ├── docs/
 │   ├── api/                 # Documentation API REST
 │   ├── architecture/        # Documentation architecture
 │   ├── database/            # Modèle de données
 │   └── ibm-mq/              # Configuration IBM MQ
+├── .github/workflows/ci.yml
 ├── docker-compose.yaml
 └── README.md
 ```
@@ -211,25 +225,37 @@ Documentation détaillée : [docs/ibm-mq/ibm-mq-configuration.md](docs/ibm-mq/ib
 ## Lancement avec Docker Compose
 
 ```bash
-docker compose up -d
+docker compose up -d          # pile complète, images applicatives construites au passage
+docker compose up -d postgres ibm-mq   # infrastructure seule, pour développer en local
 ```
 
-| Service | Port | Image |
-|---|---|---|
-| PostgreSQL | 5432 | postgres:18 |
-| pgAdmin | 5050 | dpage/pgadmin4 |
-| IBM MQ | 1414, 9443 | icr.io/ibm-messaging/mq |
-| Backend Spring Boot | 8080 | build local |
-| Frontend Angular | 4200 | build local |
+| Service | Port | Image | Attend |
+|---|---|---|---|
+| PostgreSQL | 5432 | postgres:18 | — |
+| pgAdmin | 5050 | dpage/pgadmin4 | postgres sain |
+| IBM MQ | 1414, 9443 | icr.io/ibm-messaging/mq | — |
+| Backend Spring Boot | 8080 | build de `./backend` | postgres + ibm-mq sains |
+| Frontend Angular | 4200 | build de `./frontend` (nginx) | backend |
+
+Le démarrage est ordonné par des **sondes**, pas par un simple `depends_on` : le port 8080
+écoute bien avant que Flyway, le pool JDBC et le conteneur d'écoute JMS soient prêts, donc le
+backend déclare sa disponibilité sur `/actuator/health/readiness`. Le frontend est servi par
+nginx, qui relaie `/api/` vers le backend : le navigateur ne voit qu'une seule origine.
+
+Application disponible : `http://localhost:4200`
 
 ---
 
 ## Lancement Backend (dev)
 
 ```bash
+docker compose up -d postgres ibm-mq   # dépendances seules
 cd backend
 ./mvnw spring-boot:run
 ```
+
+Le profil `dev` est actif par défaut : `application-dev.yaml` doit exister (cf.
+[Configuration](#configuration)), sans quoi le contexte ne démarre pas.
 
 ---
 
@@ -241,7 +267,8 @@ npm install
 ng serve
 ```
 
-Application disponible : `http://localhost:4200`
+Application disponible : `http://localhost:4200`. Le dev-server relaie `/api` vers
+`http://localhost:8080` (`proxy.conf.json`) : le backend doit tourner.
 
 ---
 
@@ -253,6 +280,10 @@ endpoints sont ouverts.
 ```bash
 curl -s http://localhost:8080/api/v1/messages
 ```
+
+| Méthode | Path | Description |
+|---|---|---|
+| `GET` | `/api/v1/config` | Configuration MQ non sensible (files, gestionnaire, canal) — aucun secret |
 
 Base path : `/api/v1/messages`
 
@@ -312,14 +343,19 @@ Tests couverts :
 | Classe | Type | Scope |
 |---|---|---|
 | `PaymentMessagesApplicationTests` | Intégration | Chargement du contexte Spring |
-| `PaymentMessageRepositoryTest` | JPA slice | CRUD, findByMessageId, findByReference |
-| `PaymentMessageServiceTest` | Unitaire (mocks) | Logique métier, exceptions |
+| `PaymentMessageRepositoryTest` | JPA slice | Projection de liste, pagination keyset, purge |
+| `PaymentMessageServiceTest` | Unitaire (mocks) | Logique métier, idempotence, curseur, lots bornés |
+| `PaymentMessageListenerTest` | Unitaire (mocks) | Erreurs définitives / transitoires, chronomètre, purge du MDC |
+| `BatchRetryServiceTest` | Unitaire (mocks) | Enchaînement des lots, plafond, échec |
+| `SimulationServiceTest` | Unitaire (mocks) | Cadence, bornes, envoi unique en vol, `uniqueIds` |
+| `DeadLetterDispatcherTest` | Unitaire (mocks) | Publication après commit, confirmation `dlqPublishedAt` |
+| `JmsConfigTest` | Unitaire | Factory de listeners : session transactée, concurrence |
 | `PaymentMessageControllerTest` | Web slice (MockMvc) | Endpoints REST, contrat de statut, garde-fous |
 | `HealthProbesTest` | Intégration | Sondes `liveness`/`readiness` consommées par l'orchestrateur |
 | `MetricsConfigTest` | Intégration | `/actuator/prometheus` exposé, `env` absent |
 | `HttpCacheAndCorrelationTest` | Intégration | `ETag`/`304`, `X-Request-Id` |
 | `PaymentMessageStatusTest` | Unitaire | Machine à états des statuts |
-| `PaymentMessageMapperTest` | Unitaire | Mapping Entity ↔ DTO |
+| `PaymentMessageMapperTest` | Unitaire | Mapping Entity ↔ DTO, calcul de `payloadSize` |
 | `SchemaMigrationIT` | Testcontainers (PostgreSQL) | Migrations Flyway rejouées, `timestamptz`, index, unicité |
 | `PaymentMessagePersistenceIT` | Testcontainers (PostgreSQL) | Insertion concurrente, curseur, DLQ après commit, rétention |
 | `PaymentMessageMqIT` | Testcontainers (IBM MQ + PostgreSQL) | Redélivrance, idempotence, bascule DLQ — `-Dmq.it=true` |

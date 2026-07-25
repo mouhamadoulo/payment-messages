@@ -77,9 +77,20 @@ endpoints sont ouverts.
 | `GET` | `/api/v1/messages/types` | Types de messages présents en base |
 | `GET` | `/api/v1/messages/{id}` | Détail d'un message |
 | `DELETE` | `/api/v1/messages/{id}` | Suppression |
-| `POST` | `/api/v1/messages/batch/retry-failed` | Relance des messages en échec |
+| `POST` | `/api/v1/messages/batch/retry-failed` | Relance des messages en échec (202 + `taskId`) |
+| `GET` | `/api/v1/messages/batch/retry-failed/{taskId}` | Suivi de la relance batch |
 | `POST` | `/api/v1/messages/{id}/retry` | Relance individuelle |
 | `PUT` | `/api/v1/messages/{id}/status` | Mise à jour du statut |
+| `GET` | `/api/v1/config` | Configuration MQ non sensible (files, gestionnaire, canal) |
+| `GET` | `/api/v1/simulation/config` | File visée et plafonds de la simulation d'envoi |
+| `POST` | `/api/v1/simulation/sends` | Dépôt de messages de test sur la file d'entrée (202 + `taskId`) |
+| `GET` | `/api/v1/simulation/sends/{taskId}` | Suivi de l'envoi |
+
+Les endpoints de simulation **publient sur IBM MQ et n'écrivent rien en base** : les messages
+reviennent par le consommateur applicatif.
+
+Les erreurs suivent le format `application/problem+json` (RFC 9457) et portent un
+`correlationId` repris de l'en-tête `X-Request-Id`.
 
 Swagger UI : `http://localhost:8080/swagger-ui.html`
 
@@ -126,14 +137,26 @@ Documentation complète : [docs/api/api-documentation.md](../api/api-documentati
 
 ## 6. Déploiement
 
+`docker compose up -d` démarre la **pile complète** : les deux images applicatives sont
+construites depuis leurs propres `Dockerfile`, elles ne sont pas seulement référencées.
+
 ```mermaid
 flowchart LR
-    COMPOSE[Docker Compose] --> PG[PostgreSQL:5432]
-    COMPOSE --> MQ[IBM MQ:1414]
+    COMPOSE[Docker Compose] --> PG[(PostgreSQL:5432)]
+    COMPOSE --> MQ[(IBM MQ:1414 / 9443)]
     COMPOSE --> PGADMIN[pgAdmin:5050]
-    BACKEND[Backend:8080] --> PG
+    COMPOSE --> BACKEND[Backend:8080<br/>build ./backend]
+    COMPOSE --> FRONTEND[Frontend:4200<br/>build ./frontend, nginx]
+    BACKEND --> PG
     BACKEND --> MQ
+    FRONTEND -->|proxy /api/| BACKEND
 ```
+
+Le démarrage est ordonné par des sondes, pas par un simple `depends_on` : `backend` attend
+`postgres` et `ibm-mq` *sains*, et déclare la sienne sur `/actuator/health/readiness` — le port
+8080 écoute bien avant que Flyway, le pool JDBC et le conteneur d'écoute JMS soient prêts.
+`frontend` attend `backend`, et son nginx relaie `/api/` vers lui : le navigateur ne voit
+qu'une seule origine.
 
 Documentation détaillée :
 

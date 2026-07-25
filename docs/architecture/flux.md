@@ -57,6 +57,13 @@ stateDiagram-v2
 
 ## 3. Flux détaillé : consommation MQ
 
+La session JMS est **transactée** : c'est ce qui sépare les deux familles d'erreurs. Une erreur
+**définitive** (JSON illisible, validation en échec) ne sera pas résolue par une redélivrance —
+le message est persisté en `FAILED` avec son payload brut et son motif, puis acquitté : rien
+n'est perdu, la ligne reste rejouable depuis l'API. Une erreur **transitoire** (base
+indisponible) laisse l'exception remonter : la session effectue un rollback et le gestionnaire
+de files redélivre, dans la limite de `BOTHRESH`/`BOQNAME`.
+
 ```mermaid
 sequenceDiagram
     participant BO as Back Office
@@ -70,19 +77,73 @@ sequenceDiagram
     Listener->>Listener: Désérialisation JSON → PaymentMessageEvent
     Listener->>Listener: Validation (Jakarta Validation)
 
-    alt Validation OK
+    alt Message valide
         Listener->>Service: saveMessage(event, rawPayload)
         Service->>Service: Mapper.toEntity(event, rawPayload)
-        Service->>DB: INSERT INTO payment_messages
-        DB-->>Service: PaymentMessage (avec id)
-        Service-->>Listener: PaymentMessage
-        Listener->>Listener: Log INFO "Message reçu et persisté"
-    else Validation échouée
-        Listener->>Listener: Log ERROR "Échec validation"
-    else Exception technique
-        Listener->>Listener: Log ERROR "Exception"
+        Service->>DB: existsByMessageId(...)
+        alt messageId inconnu
+            Service->>DB: INSERT INTO payment_messages
+            DB-->>Service: ligne créée (statut RECEIVED)
+            Service-->>Listener: true
+            Listener->>Listener: compteur payment.mq.messages.received, acquittement
+        else messageId déjà présent (redélivrance)
+            Service-->>Listener: false
+            Listener->>Listener: compteur payment.mq.messages.duplicates, acquittement
+        end
+    else Erreur définitive (JSON illisible ou validation en échec)
+        Listener->>Service: savePermanentFailure(ids, payload, motif)
+        Service->>DB: INSERT ligne FAILED (payload brut + errorMessage)
+        Service-->>Listener: true
+        Listener->>Listener: compteur payment.mq.messages.rejected, acquittement
+    else Erreur transitoire (base indisponible…)
+        Listener->>MQ: exception relancée → rollback de session
+        MQ->>Listener: redélivrance (jusqu'à BOTHRESH, puis BOQNAME)
+        Listener->>Listener: compteur payment.mq.listener.rollbacks
     end
 ```
+
+L'ingestion est **idempotente sur `messageId`** : une redélivrance ne crée pas de doublon. Le
+contrôle d'existence préalable ne suffit pas à lui seul — deux consommateurs concurrents
+peuvent le passer tous les deux. C'est la contrainte d'unicité en base qui arbitre : la
+`DataIntegrityViolationException` est interceptée, le message re-vérifié, et l'insertion
+comptée comme un doublon plutôt que relancée. `saveMessage` s'exécute d'ailleurs en
+`Propagation.NOT_SUPPORTED` pour que cette violation reste confinée à la transaction interne
+de `repository.save`, sans empoisonner une transaction englobante.
+
+Le chronomètre `payment.mq.processing` est étiqueté par issue (`persisted`, `duplicate`,
+`rejected`, `error`).
+
+---
+
+## 3 bis. Flux détaillé : simulation d'envoi
+
+L'onglet « Simulation d'envoi » tient le rôle du back-office : il **publie sur la file
+d'entrée** et n'écrit rien en base. Le message revient donc par le flux ci-dessus, avec la même
+désérialisation, la même validation et les mêmes rejets.
+
+```mermaid
+sequenceDiagram
+    participant UI as IHM (/simulation)
+    participant Ctrl as SimulationController
+    participant Svc as SimulationService
+    participant MQ as IBM MQ
+    participant Listener as PaymentMessageListener
+
+    UI->>Ctrl: POST /api/v1/simulation/sends { payload, count, ratePerSecond, uniqueIds }
+    Ctrl->>Svc: start(request)
+    Svc-->>Ctrl: SimulationTask (RUNNING)
+    Ctrl-->>UI: 202 Accepted { taskId, destination, total }
+    loop count copies, cadencées à ratePerSecond
+        Svc->>Svc: réécriture de messageId si uniqueIds
+        Svc->>MQ: PUT sur ibm.mq.queue
+        MQ->>Listener: consommation normale (cf. §3)
+    end
+    UI->>Ctrl: GET /api/v1/simulation/sends/{taskId} (toutes les 500 ms)
+    Ctrl-->>UI: { state, sent, published, failed }
+```
+
+Les compteurs de la tâche portent sur la **publication** (acceptation par le broker), pas sur
+le traitement applicatif : le sort de chaque message se lit dans `GET /api/v1/messages`.
 
 ---
 
@@ -96,8 +157,8 @@ sequenceDiagram
     participant DB as PostgreSQL
 
     Client->>Controller: GET /api/v1/messages?status=FAILED&page=0&size=20
-    Controller->>Service: search(status=FAILED, receivedAfter=null, pageable)
-    Service->>DB: findByStatus(FAILED, PageRequest(0,20))
+    Controller->>Service: search(MessageQuery.of(FAILED, null, null, null), pageable)
+    Service->>DB: search(...) — prédicat FILTERS, countQuery explicite
     DB-->>Service: Page<PaymentMessageSummary> (projection, sans payload)
     Service->>Service: toSummaryDto() sur chaque ligne
     Service-->>Controller: Page<PaymentMessageSummaryDto>

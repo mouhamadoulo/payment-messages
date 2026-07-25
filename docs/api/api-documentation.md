@@ -32,6 +32,30 @@ les origines admises sur `/api/**`.
 
 ---
 
+## Configuration
+
+### GET /api/v1/config
+
+Configuration IBM MQ **non sensible**, pour affichage dans l'IHM (bandeau latéral, écran de
+simulation). Ni utilisateur ni mot de passe n'est retourné : le DTO ne porte pas ces champs,
+ce n'est pas un filtrage à l'exécution.
+
+**Réponse** `200 OK`
+
+```json
+{
+  "queue": "PAYMENT.REQUEST.QUEUE",
+  "dlqQueue": "PAYMENT.DLQ.QUEUE",
+  "queueManager": "QM1",
+  "channel": "DEV.APP.SVRCONN"
+}
+```
+
+Les valeurs sont figées à la construction du contrôleur depuis `ibm.mq.*` : l'endpoint ne relit
+pas la configuration à chaque appel.
+
+---
+
 ## Messages
 
 **Base path :** `/api/v1/messages`

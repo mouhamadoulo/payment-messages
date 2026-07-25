@@ -59,6 +59,8 @@ com.bank.paymentmessages
 │   │   ├── PaymentMessageDto.java          # DTO de détail (payload inclus)
 │   │   ├── PaymentMessageSummaryDto.java   # DTO de liste (sans payload)
 │   │   ├── CursorPageDto.java              # Page paginée par curseur
+│   │   ├── DashboardStatsDto.java          # Agrégats du tableau de bord (SQL)
+│   │   ├── MqConfigDto.java                # Réponse de GET /api/v1/config (sans secret)
 │   │   ├── UpdateStatusRequest.java        # Corps de PUT /{id}/status ({status, reason})
 │   │   ├── SimulationSendRequest.java      # Corps de POST /simulation/sends
 │   │   └── SimulationConfigDto.java        # File visée et plafonds de la simulation
@@ -73,6 +75,7 @@ com.bank.paymentmessages
 ├── exception/
 │   ├── PaymentMessageNotFoundException.java
 │   ├── InvalidStatusTransitionException.java  # Transition refusée par la machine à états
+│   ├── SimulationDisabledException.java       # app.simulation.enabled: false → 503
 │   └── GlobalExceptionHandler.java     # ProblemDetail (RFC 9457), étend ResponseEntityExceptionHandler
 ├── mapper/
 │   └── PaymentMessageMapper.java       # Mapping Entity <-> DTO
@@ -88,6 +91,7 @@ com.bank.paymentmessages
 │   └── PaymentMessageSummary.java      # Projection de liste (sans payload)
 ├── service/
 │   ├── PaymentMessageService.java      # Logique métier
+│   ├── MessageQuery.java               # Filtres de liste normalisés (status, date, type, texte)
 │   ├── BatchRetryService.java          # Rejeu massif par lots, en tâche de fond
 │   ├── BatchRetryTask.java             # État d'un rejeu massif
 │   ├── Cursor.java                     # Curseur de pagination keyset
@@ -324,8 +328,13 @@ collecteur.
 
 ### 6.1 Profiles
 
-- **dev** (actif par défaut) : configuration de développement avec variables d'environnement
-- **test** : utilisé pour les tests unitaires (H2)
+| Profil | Fichier | Usage |
+|---|---|---|
+| `dev` | `application-dev.yaml` (git-ignoré, gabarit `-dev.example.yaml`) | Actif par défaut. Valeurs concrètes de développement ; rouvre le détail des sondes de santé |
+| `test` | `application-test.yaml` | Campagne Surefire (`*Test`) : H2, Flyway coupé, conteneur JMS et job DLQ à l'arrêt |
+| `integration` | `application-integration.yaml` | Campagne Failsafe (`*IT`) : PostgreSQL réel via Testcontainers, Flyway actif, `ddl-auto: validate` |
+| `mq-it` | `application-mq-it.yaml` | Seul profil où le listener JMS démarre réellement (`PaymentMessageMqIT`, `-Dmq.it=true`) |
+| `docker` | *(aucun)* | Activé par `docker-compose.yaml`. Ne porte volontairement **aucune** propriété : toute la configuration vient du bloc `environment:` du service, via les placeholders d'`application.yaml` |
 
 ### 6.2 Variables d'environnement
 
