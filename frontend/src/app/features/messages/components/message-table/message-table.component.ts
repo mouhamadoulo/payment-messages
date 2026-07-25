@@ -1,4 +1,4 @@
-import { Component, input, output, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output, computed, inject } from '@angular/core';
 import { toSignal } from '@angular/core/rxjs-interop';
 import { BreakpointObserver } from '@angular/cdk/layout';
 import { map } from 'rxjs';
@@ -68,19 +68,41 @@ const COLUMNS: Column[] = [
                 @for (col of columns; track col.key) {
                   <th [class.right]="col.align === 'right'" [class.sortable]="col.sortable"
                       [class.active]="sortKey() === col.key"
-                      (click)="col.sortable && sortChange.emit(col.key)">
-                    {{ col.label }}
-                    @if (sortKey() === col.key) { <span class="arrow">{{ sortDir() === 'asc' ? '▲' : '▼' }}</span> }
+                      [attr.aria-sort]="col.sortable ? ariaSort(col.key) : null">
+                    @if (col.sortable) {
+                      <!-- Le tri est une commande : il lui faut un contrôle réel, atteignable
+                           au clavier et annoncé comme tel. -->
+                      <button type="button" class="th-btn" (click)="sortChange.emit(col.key)"
+                              [attr.aria-label]="'Trier par ' + col.label">
+                        {{ col.label }}
+                        @if (sortKey() === col.key) { <span class="arrow" aria-hidden="true">{{ sortDir() === 'asc' ? '▲' : '▼' }}</span> }
+                      </button>
+                    } @else {
+                      {{ col.label }}
+                    }
                   </th>
                 }
-                <th class="right"></th>
+                <th class="right"><span class="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody appAutoAnimate>
               @for (row of rows(); track row.m.id) {
                 <tr [class.selected]="row.m.id === selectedId()" [class.flash]="row.m.id === flashId()"
                     (click)="select.emit(row.m)">
-                  <td class="mono link-like">{{ row.m.reference }}</td>
+                  <!--
+                    La ligne entière reste cliquable à la souris, mais l'action passe par un
+                    bouton réel : une ligne porteuse d'un simple gestionnaire de clic n'est ni
+                    focalisable ni activable au clavier, et aucun rôle ARIA ne la rend
+                    interactive sans casser la sémantique du tableau. L'arrêt de la propagation
+                    évite la double émission lorsque le clic vient du bouton lui-même.
+                  -->
+                  <td>
+                    <button type="button" class="cell-btn mono link-like"
+                            (click)="$event.stopPropagation(); select.emit(row.m)"
+                            [attr.aria-label]="'Ouvrir le message ' + row.m.reference">
+                      {{ row.m.reference }}
+                    </button>
+                  </td>
                   <td class="mono muted ellipsis">{{ row.m.messageId }}</td>
                   <td class="mono">{{ row.m.messageType }}</td>
                   <td><app-status-badge [status]="row.m.status" /></td>
@@ -130,11 +152,23 @@ const COLUMNS: Column[] = [
     th { text-align: left; padding: 12px 13px; font-size: .655rem; font-weight: 700; letter-spacing: .05em;
          text-transform: uppercase; color: var(--muted-2); border-bottom: 1px solid var(--border);
          white-space: nowrap; background: var(--surface-head); user-select: none; }
-    th.sortable { cursor: pointer; }
+    th.sortable { cursor: pointer; padding: 0; }
     th.sortable:hover { color: var(--text-2); }
     th.active { color: var(--text); }
     th.right, td.right { text-align: right; }
     .arrow { color: var(--primary); }
+
+    /* Le bouton occupe toute la cellule : la zone cliquable reste celle de l'en-tête. */
+    .th-btn { width: 100%; padding: 12px 13px; border: 0; background: none; color: inherit;
+              font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: inherit;
+              cursor: pointer; }
+    th.right .th-btn { text-align: right; }
+    .cell-btn { border: 0; background: none; padding: 0; font: inherit; cursor: pointer;
+                text-align: left; }
+    .th-btn:focus-visible, .cell-btn:focus-visible, .open:focus-visible {
+      outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+               overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
     td { padding: 11px 13px; font-size: .8rem; border-bottom: 1px solid var(--border-soft);
          color: var(--text-2); white-space: nowrap; }
@@ -190,7 +224,8 @@ const COLUMNS: Column[] = [
     .nav:hover:not(:disabled) { background: var(--bg); color: var(--primary); }
     .nav:disabled { opacity: .4; cursor: not-allowed; }
     .page { font-size: .78rem; color: var(--text-2); min-width: 56px; text-align: center; }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MessageTableComponent {
   readonly messages = input.required<PaymentMessage[]>();
@@ -243,6 +278,12 @@ export class MessageTableComponent {
     const end = Math.min(start + p.size - 1, p.totalElements);
     return `Affichage ${start}–${end} sur ${p.totalElements} messages`;
   });
+
+  /** `aria-sort` de l'en-tête : seule la colonne triée porte une direction. */
+  protected ariaSort(key: string): 'ascending' | 'descending' | 'none' {
+    if (this.sortKey() !== key) return 'none';
+    return this.sortDir() === 'asc' ? 'ascending' : 'descending';
+  }
 
   protected go(delta: number) {
     const p = this.page();

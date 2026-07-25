@@ -37,6 +37,7 @@ frontend/src/
     │   ├── guards/auth.guard.ts             # Redirection vers /login sans session
     │   ├── interceptors/api.interceptor.ts  # Préfixe /api/v1
     │   ├── interceptors/auth.interceptor.ts # Jeton Bearer + traitement centralisé des 401
+    │   ├── interceptors/resilience.interceptor.ts # Délai maximal + rejeu des GET
     │   └── services/                        # NotificationService, ThemeService
     ├── features/
     │   ├── auth/login.page.ts               # Écran de connexion
@@ -124,3 +125,32 @@ motif facultatif. Le serveur reste l'autorité : une transition interdite répon
 - **Tableau ou cartes, jamais les deux.** Le rendu est conditionné par un signal de point de
   rupture (`BreakpointObserver`, `max-width: 700px`) au lieu d'être masqué en CSS, et la
   taille formatée de chaque ligne est mémorisée dans un modèle de ligne.
+- **Lectures unitaires en `httpResource`.** Le message affiché (`/messages/{id}`), la liste des
+  types et la configuration MQ sont décrits en fonction d'un signal : Angular émet la requête,
+  annule la précédente et expose `isLoading()` / `error()`. Une description `undefined` laisse
+  la ressource au repos — c'est ce qui remplace les gardes « déjà chargé ». Les `subscribe`
+  restants sont des **commandes** (`POST`, `PUT`, `DELETE`) et le suivi du rejeu massif.
+- **Détection de changement `OnPush`** sur tous les composants : en mode *zoneless*, un cycle
+  parcourt sinon les vues non `OnPush` alors qu'un seul signal a changé.
+
+---
+
+## 7. Résilience et chargement
+
+- **`resilienceInterceptor`** (en bout de chaîne, donc sur la requête définitive) : délai
+  maximal de 15 s sur toutes les méthodes, et rejeu avec temporisation exponentielle
+  (300 ms puis 600 ms, deux reprises) **limité aux méthodes idempotentes** — rejouer un
+  `POST /retry` doublerait l'effet métier. Seuls un `status 0` (coupure réseau) et les `5xx`
+  sont rejoués : un `4xx` renverrait la même réponse, et un dépassement de délai rejoué trois
+  fois enchaînerait 45 s d'attente.
+- **`withFetch()`** : l'API `fetch` remplace `XMLHttpRequest`, ce qui annule réellement la
+  requête (et non le seul abonnement) quand un `switchMap` ou une ressource abandonne.
+- **Pas de moteur d'animations.** Toutes les animations sont en CSS et Angular Material 22
+  n'importe plus `@angular/animations` : `provideAnimations()` et la dépendance sont retirés
+  plutôt que chargés en différé (`provideAnimationsAsync()` est déprécié depuis la 20.2).
+- **`@defer`** sur les blocs sous la ligne de flottaison du dashboard (`on viewport`, avec un
+  substitut qui réserve la hauteur) et sur le tiroir de détail (`when`), sorti du lot de la
+  page de liste avec la directive d'animation de liste qu'il embarque.
+- **Budgets de build** (`angular.json`) : `initial` et `allScript`, ce dernier couvrant la
+  somme des lots différés — sans lui, une régression de poids passait inaperçue dès qu'elle
+  tombait dans un *chunk* paresseux.

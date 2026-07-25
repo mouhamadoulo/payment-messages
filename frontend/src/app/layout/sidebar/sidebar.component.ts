@@ -1,4 +1,4 @@
-import { Component, output, inject, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, output, inject, computed } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { DecimalPipe } from '@angular/common';
 import { MessageService } from '../../features/messages/services/message.service';
@@ -91,7 +91,8 @@ import { relativeTime } from '../../shared/util/payload.util';
     @media (prefers-reduced-motion: no-preference) {
       .dot { animation: mq-pulse 1.8s infinite; }
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class SidebarComponent {
   readonly navigate = output<void>();

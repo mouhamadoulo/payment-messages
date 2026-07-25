@@ -1,4 +1,4 @@
-import { Component, input, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, computed } from '@angular/core';
 import { PaymentMessageStatus } from '../../../features/messages/models/message.model';
 import { statusMeta } from '../../config/status.config';
 
@@ -16,7 +16,8 @@ import { statusMeta } from '../../config/status.config';
       font-family: var(--font-mono); font-size: .66rem; font-weight: 700;
       letter-spacing: .02em; white-space: nowrap;
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class StatusBadgeComponent {
   readonly status = input.required<PaymentMessageStatus>();

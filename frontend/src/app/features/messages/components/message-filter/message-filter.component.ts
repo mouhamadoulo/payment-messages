@@ -1,4 +1,4 @@
-import { Component, input, output, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output, signal } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { Subject, debounceTime, distinctUntilChanged } from 'rxjs';
 import { FormsModule } from '@angular/forms';
@@ -91,7 +91,8 @@ const SEARCH_DEBOUNCE_MS = 250;
     .chip:hover { background: var(--bg); }
     .chip span { font-weight: 500; opacity: .7; }
     .chip.active { border-color: var(--c); background: var(--cbg); color: var(--c); }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MessageFilterComponent {
   /** compteurs par statut sous les filtres actifs (cf. /messages/stats) */

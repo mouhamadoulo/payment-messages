@@ -325,7 +325,8 @@ Tests couverts :
 
 ```bash
 cd frontend
-ng test
+npm run test              # Vitest, mode observation
+npm run test -- --no-watch   # exécution unique (mode CI)
 ```
 
 ### CI/CD
@@ -334,7 +335,8 @@ Pipeline GitHub Actions à chaque push / PR :
 
 ```yaml
 - Backend: JDK 21, mvnw verify
-- Frontend: Node.js 22, npm ci + npm run build
+- Frontend: Node.js 22, npm ci + npm run test -- --no-watch + npm run build
+- Docker Compose: config --quiet + up -d --wait
 ```
 
 ---

@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { ApplicationRef } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
@@ -75,13 +76,33 @@ describe('MessageService', () => {
     expect(svc.dashboard()?.hourly).toHaveLength(1);
   });
 
-  it('loads the type list once', () => {
+  it('loads the type list once', async () => {
     svc.loadMessageTypes();
+    // `httpResource` décrit la requête à partir d'un signal : elle part au cycle suivant, pas
+    // dans l'appel lui-même, et la valeur reçue est publiée de façon asynchrone.
+    TestBed.tick();
     ctrl.expectOne('/messages/types').flush(['pacs.002', 'pacs.008']);
+    await TestBed.inject(ApplicationRef).whenStable();
 
     svc.loadMessageTypes();
+    TestBed.tick();
     ctrl.expectNone('/messages/types');
     expect(svc.messageTypes()).toEqual(['pacs.002', 'pacs.008']);
+  });
+
+  it('cancels the previous message request when another one is opened', async () => {
+    svc.loadMessage(1);
+    TestBed.tick();
+    svc.loadMessage(2);
+    TestBed.tick();
+
+    const requests = ctrl.match((r) => r.url.startsWith('/messages/'));
+    expect(requests.map((r) => r.request.url)).toEqual(['/messages/1', '/messages/2']);
+    expect(requests[0].cancelled).toBe(true);
+
+    requests[1].flush({ id: 2, reference: 'REF-2' });
+    await TestBed.inject(ApplicationRef).whenStable();
+    expect(svc.currentMessage()?.id).toBe(2);
   });
 
   it('only replays views that have been loaded at least once', () => {

@@ -1,6 +1,6 @@
-import { Injectable, signal, inject, computed, WritableSignal, DOCUMENT } from '@angular/core';
+import { Injectable, signal, inject, computed, effect, WritableSignal, DOCUMENT } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
-import { HttpClient, HttpParams } from '@angular/common/http';
+import { HttpClient, HttpParams, httpResource } from '@angular/common/http';
 import { EMPTY, Subject, catchError, filter, fromEvent, interval, merge, switchMap, tap } from 'rxjs';
 import {
   BatchRetryTask, DashboardStats, PaymentMessage, PaymentMessageStatus, MessageFilters, MqConfig,
@@ -37,21 +37,15 @@ export class MessageService {
 
   readonly messages: WritableSignal<PaymentMessage[]> = signal([]);
   readonly stats: WritableSignal<Record<PaymentMessageStatus, number>> = signal({} as Record<PaymentMessageStatus, number>);
-  readonly currentMessage = signal<PaymentMessage | null>(null);
   /** chargement de la liste paginée */
   readonly loading = signal(false);
   /** chargement des statistiques (dashboard) */
   readonly statsLoading = signal(false);
-  /** chargement d'un message unitaire (drawer / page détail) */
-  readonly detailLoading = signal(false);
+  /** erreur du flux de liste ; le chargement unitaire porte la sienne (`detailError`) */
   readonly error = signal<string | null>(null);
   readonly currentPage = signal<Page<PaymentMessage> | null>(null);
   /** agrégats du dashboard, calculés en SQL (cf. GET /messages/stats/dashboard) */
   readonly dashboard = signal<DashboardStats | null>(null);
-  /** types présents en base, pour le sélecteur de la barre de filtres */
-  readonly messageTypes = signal<string[]>([]);
-  /** configuration MQ (noms de files, gestionnaire, canal) — sans secret */
-  readonly mqConfig = signal<MqConfig | null>(null);
   /** horodatage du dernier chargement réussi, affiché dans le bandeau */
   readonly lastUpdated = signal<Date | null>(null);
   /** id du message dont le statut vient de changer — déclenche un flash visuel */
@@ -65,6 +59,49 @@ export class MessageService {
 
   readonly total = computed(() =>
     Object.values(this.stats() ?? {}).reduce((a, b) => a + (b ?? 0), 0));
+
+  /**
+   * Les lectures unitaires passent par `httpResource` : la requête est décrite en fonction des
+   * signaux dont elle dépend, Angular annule la précédente à chaque changement et expose
+   * lui-même `isLoading()` / `error()`. Les drapeaux tenus à la main disparaissent, et la
+   * requête n'est émise que lorsque la description existe — un `undefined` laisse la
+   * ressource au repos, ce qui remplace les gardes « déjà chargé » qui protégeaient les
+   * anciens `subscribe`.
+   *
+   * Les flux paginés (liste, compteurs, agrégats) restent sur `Subject` + `switchMap` : ils
+   * exposent des signaux d'état que les vues consomment déjà et l'annulation y est acquise
+   * (cf. `F4`).
+   */
+  private readonly currentMessageId = signal<number | null>(null);
+  private readonly messageResource = httpResource<PaymentMessage | null>(
+    () => {
+      const id = this.currentMessageId();
+      return id === null ? undefined : { url: `${API_CONFIG.messages}/${id}` };
+    },
+    { defaultValue: null });
+
+  /** message affiché dans le tiroir ou la page détail */
+  readonly currentMessage = this.messageResource.value;
+  /** chargement d'un message unitaire (drawer / page détail) */
+  readonly detailLoading = this.messageResource.isLoading;
+  readonly detailError = computed(() => {
+    const err = this.messageResource.error() as { message?: string } | undefined;
+    return err ? err.message ?? 'Erreur inconnue' : null;
+  });
+
+  /** types présents en base, pour le sélecteur de la barre de filtres */
+  private readonly typesRequested = signal(false);
+  private readonly typesResource = httpResource<string[]>(
+    () => (this.typesRequested() ? { url: API_CONFIG.messageTypes } : undefined),
+    { defaultValue: [] });
+  readonly messageTypes = this.typesResource.value;
+
+  /** configuration MQ (noms de files, gestionnaire, canal) — sans secret */
+  private readonly configRequested = signal(false);
+  private readonly configResource = httpResource<MqConfig | null>(
+    () => (this.configRequested() ? { url: API_CONFIG.config } : undefined),
+    { defaultValue: null });
+  readonly mqConfig = this.configResource.value;
 
   /**
    * Chaque flux passe par un `Subject` unique consommé en `switchMap` : une requête en vol
@@ -150,6 +187,13 @@ export class MessageService {
       filter(() => this.autoRefresh() && visible()),
       takeUntilDestroyed(),
     ).subscribe(() => this.refreshAll(true));
+
+    // Les échecs des ressources n'ont plus de `subscribe` où se signaler : seul le chargement
+    // unitaire mérite un message, les deux autres sont au mieux dégradés (sélecteur de type
+    // vide, encart MQ absent).
+    effect(() => {
+      if (this.messageResource.error()) this.notification.error('Erreur lors du chargement du message');
+    });
   }
 
   /** signale un changement pour animer la ligne/carte concernée, puis se réinitialise */
@@ -166,16 +210,12 @@ export class MessageService {
 
   /** charge une fois la config MQ non sensible (best-effort). */
   loadConfig() {
-    if (this.mqConfig()) return;
-    this.http.get<MqConfig>(API_CONFIG.config)
-      .subscribe({ next: (res) => this.mqConfig.set(res), error: () => { /* best-effort */ } });
+    this.configRequested.set(true);
   }
 
   /** charge une fois la liste des types (best-effort : sans elle, le sélecteur reste vide). */
   loadMessageTypes() {
-    if (this.messageTypes().length) return;
-    this.http.get<string[]>(API_CONFIG.messageTypes)
-      .subscribe({ next: (res) => this.messageTypes.set(res), error: () => { /* best-effort */ } });
+    this.typesRequested.set(true);
   }
 
   /**
@@ -209,25 +249,11 @@ export class MessageService {
   }
 
   loadMessage(id: number) {
-    this.detailLoading.set(true);
-    this.error.set(null);
-
-    this.http.get<PaymentMessage>(`${API_CONFIG.messages}/${id}`)
-      .subscribe({
-        next: (res) => {
-          this.currentMessage.set(res);
-          this.detailLoading.set(false);
-        },
-        error: (err) => {
-          this.error.set(err.message);
-          this.detailLoading.set(false);
-          this.notification.error('Erreur lors du chargement du message');
-        }
-      });
+    this.currentMessageId.set(id);
   }
 
   clearCurrent() {
-    this.currentMessage.set(null);
+    this.currentMessageId.set(null);
   }
 
   retry(id: number) {
@@ -324,7 +350,9 @@ export class MessageService {
         next: () => {
           this.notification.success('Message supprimé');
           this.messages.update((list) => list.filter((m) => m.id !== id));
-          this.currentMessage.set(null);
+          // La ressource doit oublier l'identifiant, pas seulement sa valeur : le message
+          // n'existe plus, un rechargement répondrait 404.
+          this.clearCurrent();
           this.afterWrite();
           if (redirect) this.router.navigate(['/messages']);
         },

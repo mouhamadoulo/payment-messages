@@ -1,4 +1,7 @@
-import { AfterViewInit, Component, OnInit, inject, signal, computed, viewChild } from '@angular/core';
+import {
+  AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal, computed, viewChild,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { MessageService, DEFAULT_SORT } from '../../services/message.service';
@@ -43,12 +46,19 @@ import { messagePayloadSize } from '../../../../shared/util/payload.util';
           (open)="goToDetail($event)" />
       }
 
-      <app-message-drawer
-        [message]="svc.currentMessage()"
-        (close)="svc.clearCurrent()"
-        (retry)="onRetry()"
-        (changeStatus)="onChangeStatus()"
-        (delete)="onDelete()" />
+      <!--
+        Le tiroir n'est monté qu'à la première ouverture : son gabarit, ses styles et l'analyse
+        du payload ne sont plus dans le lot de la page de liste alors que la plupart des visites
+        n'ouvrent aucun message.
+      -->
+      @defer (when svc.currentMessage() !== null) {
+        <app-message-drawer
+          [message]="svc.currentMessage()"
+          (close)="svc.clearCurrent()"
+          (retry)="onRetry()"
+          (changeStatus)="onChangeStatus()"
+          (delete)="onDelete()" />
+      }
     </div>
   `,
   styles: [`
@@ -71,13 +81,15 @@ import { messagePayloadSize } from '../../../../shared/util/payload.util';
       .sk-row { grid-template-columns: 1.4fr 1fr .7fr; }
       .sk-row .skeleton:nth-child(n+4) { display: none; }
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MessageListPage implements OnInit, AfterViewInit {
   protected readonly svc = inject(MessageService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly filterCmp = viewChild(MessageFilterComponent);
 
   protected readonly sort = signal(DEFAULT_SORT);
@@ -92,7 +104,10 @@ export class MessageListPage implements OnInit, AfterViewInit {
 
   ngOnInit() {
     this.svc.clearCurrent();
-    this.route.queryParamMap.subscribe((q) => {
+    // `takeUntilDestroyed` explicite : la route complète bien son flux, mais l'abonnement
+    // s'aligne sur celui du bandeau plutôt que de dépendre de ce détail. Hors contexte
+    // d'injection (ngOnInit), le `DestroyRef` doit être fourni.
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
       const status = q.get('status') as PaymentMessageStatus | null;
       this.filters = status ? { status } : {};
       this.pageIndex = 0;

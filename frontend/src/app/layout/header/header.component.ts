@@ -1,4 +1,4 @@
-import { Component, output, inject, signal, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, output, inject, signal, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { filter, startWith } from 'rxjs';
@@ -91,7 +91,8 @@ import { IconComponent } from '../../shared/ui/icon/icon.component';
       .account { padding-left: 0; border-left: none; }
       .who { display: none; }
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class HeaderComponent {
   readonly toggleMenu = output<void>();

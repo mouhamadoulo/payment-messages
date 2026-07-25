@@ -1,4 +1,4 @@
-import { Component, computed, inject, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { RouterLink } from '@angular/router';
 import { PaymentMessage, PaymentMessageStatus } from '../../models/message.model';
@@ -113,7 +113,8 @@ import { formatAmount, formatBytes, messagePayloadSize, parsePayload } from '../
     .btn.icon { padding: 11px; }
     .btn.icon.danger { color: var(--danger); }
     .btn.icon.danger:hover { background: var(--danger-soft); }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MessageDrawerComponent {
   readonly message = input<PaymentMessage | null>(null);

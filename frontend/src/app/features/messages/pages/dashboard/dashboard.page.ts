@@ -1,4 +1,4 @@
-import { Component, OnInit, inject, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, computed } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MessageService } from '../../services/message.service';
 import { PaymentMessage, PaymentMessageStatus } from '../../models/message.model';
@@ -96,70 +96,87 @@ import { relativeTime } from '../../../../shared/util/payload.util';
         </div>
       </section>
 
-      <section class="grid split">
-        <div class="card">
-          <div class="card-head">
-            <h3>Répartition par type de message</h3>
-            <span class="meta">{{ fmt(total()) }} messages</span>
+      <!--
+        Blocs sous la ligne de flottaison : leur rendu (et l'animation de liste qu'ils
+        embarquent) attend qu'ils entrent dans la fenêtre. Le premier rendu ne paie plus que
+        les KPI et les deux graphiques du haut. Le substitut réserve la hauteur, sans quoi
+        l'arrivée du bloc décalerait le contenu déjà lu.
+      -->
+      @defer (on viewport) {
+        <section class="grid split">
+          <div class="card">
+            <div class="card-head">
+              <h3>Répartition par type de message</h3>
+              <span class="meta">{{ fmt(total()) }} messages</span>
+            </div>
+            @if (typeDist().length) {
+              <div class="rows" appAutoAnimate>
+                @for (t of typeDist(); track t.label) {
+                  <div class="row">
+                    <span class="row-label mono">{{ t.label }}</span>
+                    <div class="track"><div class="fill grad" [style.width.%]="t.pct"></div></div>
+                    <span class="row-count mono">{{ t.count }}</span>
+                  </div>
+                }
+              </div>
+            } @else {
+              <p class="empty">Aucun message</p>
+            }
           </div>
-          @if (typeDist().length) {
-            <div class="rows" appAutoAnimate>
-              @for (t of typeDist(); track t.label) {
-                <div class="row">
-                  <span class="row-label mono">{{ t.label }}</span>
-                  <div class="track"><div class="fill grad" [style.width.%]="t.pct"></div></div>
-                  <span class="row-count mono">{{ t.count }}</span>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>Tentatives de rejeu</h3>
+              <span class="meta">retryCount</span>
+            </div>
+            <div class="tiles">
+              @for (b of retryBuckets(); track b.label) {
+                <div class="tile">
+                  <div class="tile-value mono">{{ b.count }}</div>
+                  <div class="tile-label">{{ b.label }}</div>
                 </div>
               }
             </div>
-          } @else {
-            <p class="empty">Aucun message</p>
-          }
-        </div>
+            <button class="btn" [disabled]="!count('FAILED') || svc.batchRetryRunning()" (click)="retryFailed()">
+              @if (svc.batchRetryRunning()) {
+                Rejeu en cours… {{ svc.batchRetryProcessed() }} message(s)
+              } @else {
+                Rejouer les {{ count('FAILED') }} message(s) en échec
+              }
+            </button>
+          </div>
+        </section>
+      } @placeholder {
+        <section class="grid split">
+          <div class="card sk-block"></div>
+          <div class="card sk-block"></div>
+        </section>
+      }
 
-        <div class="card">
+      @defer (on viewport) {
+        <section class="card">
           <div class="card-head">
-            <h3>Tentatives de rejeu</h3>
-            <span class="meta">retryCount</span>
+            <h3>Alertes récentes</h3>
+            <a routerLink="/messages" class="link">Voir tous les messages →</a>
           </div>
-          <div class="tiles">
-            @for (b of retryBuckets(); track b.label) {
-              <div class="tile">
-                <div class="tile-value mono">{{ b.count }}</div>
-                <div class="tile-label">{{ b.label }}</div>
-              </div>
-            }
-          </div>
-          <button class="btn" [disabled]="!count('FAILED') || svc.batchRetryRunning()" (click)="retryFailed()">
-            @if (svc.batchRetryRunning()) {
-              Rejeu en cours… {{ svc.batchRetryProcessed() }} message(s)
-            } @else {
-              Rejouer les {{ count('FAILED') }} message(s) en échec
-            }
-          </button>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <h3>Alertes récentes</h3>
-          <a routerLink="/messages" class="link">Voir tous les messages →</a>
-        </div>
-        @if (alerts().length) {
-          <div class="alerts" appAutoAnimate>
-            @for (a of alerts(); track a.id) {
-              <a class="alert" [routerLink]="['/messages', a.id]"
-                 [style.background]="a.bg" [style.border-color]="a.border">
-                <span class="level" [style.background]="a.color">{{ a.level }}</span>
-                <span class="alert-msg">{{ a.message }}</span>
-                <span class="alert-time mono">{{ a.time }}</span>
-              </a>
-            }
-          </div>
-        } @else {
-          <p class="empty">Aucun message en échec</p>
-        }
-      </section>
+          @if (alerts().length) {
+            <div class="alerts" appAutoAnimate>
+              @for (a of alerts(); track a.id) {
+                <a class="alert" [routerLink]="['/messages', a.id]"
+                   [style.background]="a.bg" [style.border-color]="a.border">
+                  <span class="level" [style.background]="a.color">{{ a.level }}</span>
+                  <span class="alert-msg">{{ a.message }}</span>
+                  <span class="alert-time mono">{{ a.time }}</span>
+                </a>
+              }
+            </div>
+          } @else {
+            <p class="empty">Aucun message en échec</p>
+          }
+        </section>
+      } @placeholder {
+        <section class="card sk-block"></section>
+      }
       }
     </div>
   `,
@@ -167,6 +184,8 @@ import { relativeTime } from '../../../../shared/util/payload.util';
     .page { display: flex; flex-direction: column; gap: 18px; }
     @media (prefers-reduced-motion: no-preference) { .page { animation: mq-up .3s ease; } }
     .sk-kpi { display: flex; flex-direction: column; gap: 11px; }
+    /* Réserve la hauteur d'un bloc différé : son arrivée ne doit pas décaler la page. */
+    .sk-block { min-height: 208px; }
 
     @media (prefers-reduced-motion: no-preference) {
       .bar { animation: grow-up .5s cubic-bezier(.22,.61,.36,1) both; transform-origin: bottom; }
@@ -255,7 +274,8 @@ import { relativeTime } from '../../../../shared/util/payload.util';
       .tiles { grid-template-columns: repeat(2, 1fr); }
       .row-label { width: 100px; }
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class DashboardPage implements OnInit {
   protected readonly svc = inject(MessageService);
