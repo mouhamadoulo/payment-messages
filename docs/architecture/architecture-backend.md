@@ -27,6 +27,8 @@ Le backend est une application **Spring Boot 4.1.0** en **Java 21**. Il assure :
 | Jackson | - | Sérialisation JSON |
 | SpringDoc OpenAPI | 2.8.9 | Documentation API |
 | Spring Boot Actuator | - | Métriques et santé |
+| Flyway | - | Migrations de schéma (`db/migration`) |
+| Caffeine | - | Cache court des statistiques |
 
 ---
 
@@ -36,12 +38,17 @@ Le backend est une application **Spring Boot 4.1.0** en **Java 21**. Il assure :
 com.bank.paymentmessages
 ├── PaymentMessagesApplication.java     # Classe principale
 ├── config/
-│   └── JacksonConfig.java              # Configuration Jackson (JavaTimeModule)
+│   ├── JacksonConfig.java              # Personnalisation du JsonMapper Boot
+│   ├── JmsConfig.java                  # Factory de listeners + ErrorHandler
+│   ├── CacheConfig.java                # @EnableCaching (cache messageStats)
+│   └── BatchRetryExecutorConfig.java   # Exécuteur dédié au rejeu massif
 ├── controller/
 │   └── PaymentMessageController.java   # Endpoints REST
 ├── dto/
 │   ├── api/
-│   │   └── PaymentMessageDto.java      # DTO de réponse API
+│   │   ├── PaymentMessageDto.java          # DTO de détail (payload inclus)
+│   │   ├── PaymentMessageSummaryDto.java   # DTO de liste (sans payload)
+│   │   └── CursorPageDto.java              # Page paginée par curseur
 │   └── mq/
 │       ├── PaymentMessageEvent.java    # DTO entrant (MQ)
 │       ├── Payment.java                # Détails du paiement
@@ -56,11 +63,20 @@ com.bank.paymentmessages
 ├── mapper/
 │   └── PaymentMessageMapper.java       # Mapping Entity <-> DTO
 ├── mq/
-│   └── PaymentMessageListener.java     # Listener JMS
+│   ├── PaymentMessageListener.java     # Listener JMS
+│   ├── DeadLetterPublisher.java        # Envoi sur la DLQ applicative
+│   ├── DeadLetterRequestedEvent.java   # Demande de publication DLQ
+│   ├── DeadLetterDispatcher.java       # Publication DLQ après commit
+│   └── DeadLetterRecoveryJob.java      # Reprise des DLQ non confirmées
 ├── repository/
-│   └── PaymentMessageRepository.java   # Repository JPA
+│   ├── PaymentMessageRepository.java   # Repository JPA
+│   └── PaymentMessageSummary.java      # Projection de liste (sans payload)
 └── service/
-    └── PaymentMessageService.java      # Logique métier
+    ├── PaymentMessageService.java      # Logique métier
+    ├── BatchRetryService.java          # Rejeu massif par lots, en tâche de fond
+    ├── BatchRetryTask.java             # État d'un rejeu massif
+    ├── Cursor.java                     # Curseur de pagination keyset
+    └── MessageRetentionJob.java        # Purge planifiée des PROCESSED
 ```
 
 ---
@@ -107,10 +123,32 @@ Point d'entrée de l'API REST. Base path : `/api/v1/messages`.
 Couche métier. Contient toute la logique de traitement :
 
 - Création et mise à jour des messages
-- Recherche paginée avec filtres (statut, date)
-- Statistiques par statut
-- Gestion des retries (individuel et batch)
+- Recherche paginée avec filtres (statut, date), **sans payload** (projection de liste)
+- Pagination par curseur (`searchByCursor`) pour la navigation séquentielle
+- Statistiques par statut, **mises en cache** (`messageStats`, TTL court, invalidé à chaque écriture)
+- Rejeu individuel et rejeu par **lots bornés** (`retryFailedBatch`)
+- Purge de rétention par lots (`purgeProcessedBefore`)
 - Gestion des exceptions métier
+
+**Transactions** : la classe est `@Transactional(readOnly = true)` par défaut, chaque écriture
+est annotée explicitement. Deux exceptions assumées :
+
+- les insertions d'ingestion (`saveMessage`, `savePermanentFailure`) tournent en
+  `Propagation.NOT_SUPPORTED` — la violation de contrainte d'un doublon reste ainsi confinée
+  à la transaction interne de `repository.save`, condition de l'idempotence ;
+- la publication DLQ n'a jamais lieu dans la transaction : le service émet un
+  `DeadLetterRequestedEvent`, publié par `DeadLetterDispatcher` **après commit**.
+
+Le champ `@Version` de l'entité arbitre deux changements de statut concurrents : le second
+échoue en `409` au lieu d'écraser le premier.
+
+### 5.2.1 Rejeu massif (`BatchRetryService`)
+
+Le rejeu global ne charge plus toute la table : il enchaîne des lots bornés
+(`app.batch-retry.batch-size`, 500 par défaut), chacun dans sa propre transaction, sur un
+exécuteur mono-thread dédié. L'API répond `202 Accepted` avec un `taskId` suivi par
+`GET /batch/retry-failed/{taskId}`. Un seul rejeu en vol à la fois ; le plafond
+`app.batch-retry.max-messages` interrompt un rejeu trop volumineux (`truncated`).
 
 ### 5.3 Repository (`PaymentMessageRepository`)
 
@@ -124,11 +162,17 @@ Méthodes dérivées :
 | `existsByMessageId(String)` | `SELECT COUNT(*) … WHERE message_id = ?` (idempotence de l'ingestion) |
 | `findByReference(String)` | `WHERE reference = ?` |
 | `findByStatusAndDlqPublishedAtIsNull(...)` | `WHERE status = ? AND dlq_published_at IS NULL` (reprise DLQ) |
-| `findByStatus(PaymentMessageStatus, Pageable)` | `WHERE status = ?` avec pagination |
-| `findByReceivedAtAfter(LocalDateTime, Pageable)` | `WHERE received_at > ?` avec pagination |
-| `findByStatusAndReceivedAtAfter(...)` | `WHERE status = ? AND received_at > ?` avec pagination |
-| `findAllByStatus(PaymentMessageStatus)` | `WHERE status = ?` (sans pagination) |
+| `findAllProjectedBy(Pageable)` | liste paginée, projection sans payload |
+| `findByStatus(PaymentMessageStatus, Pageable)` | `WHERE status = ?`, projection sans payload |
+| `findByReceivedAtAfter(OffsetDateTime, Pageable)` | `WHERE received_at > ?`, projection sans payload |
+| `findByStatusAndReceivedAtAfter(...)` | `WHERE status = ? AND received_at > ?`, projection sans payload |
+| `findNextPage(...)` | pagination keyset : `(received_at, id) < (curseur)`, `ORDER BY received_at DESC, id DESC` (JPQL) |
+| `findAllByStatus(PaymentMessageStatus, Pageable)` | lot borné d'entités complètes (rejeu massif) |
+| `findPurgeableIds(status, cutoff, Pageable)` | identifiants purgeables par la rétention (JPQL) |
 | `countByStatus()` | `SELECT status, COUNT(*) GROUP BY status` (JPQL) |
+
+Les méthodes de liste renvoient `PaymentMessageSummary` : Spring Data génère un
+`select new …(p.id, p.messageId, …)`, la colonne `payload` n'est donc pas lue.
 
 ### 5.4 JMS Listener (`PaymentMessageListener`)
 
@@ -146,10 +190,12 @@ Méthodes dérivées :
 
 ### 5.5 Mapper (`PaymentMessageMapper`)
 
-Classe utilitaire (constructeur privé) avec trois méthodes statiques :
+Classe utilitaire (constructeur privé) :
 
-- `toDto(PaymentMessage)` → `PaymentMessageDto`
-- `toEntity(PaymentMessageEvent, String rawPayload)` → `PaymentMessage`
+- `toDto(PaymentMessage)` → `PaymentMessageDto` (détail, payload inclus)
+- `toSummaryDto(PaymentMessageSummary)` → `PaymentMessageSummaryDto` (liste, sans payload)
+- `toEntity(PaymentMessageEvent, String rawPayload)` → `PaymentMessage`, avec calcul de
+  `payloadSize` (octets UTF-8) à l'ingestion
 - `toFailedEntity(messageId, reference, messageType, rawPayload, errorMessage)` → `PaymentMessage`
   en statut `FAILED` (rejet définitif d'un message entrant)
 
@@ -159,6 +205,7 @@ Classe utilitaire (constructeur privé) avec trois méthodes statiques :
 |---|---|
 | `PaymentMessageNotFoundException` | `404 NOT FOUND` |
 | `IllegalArgumentException` | `400 BAD REQUEST` |
+| `OptimisticLockingFailureException` | `409 CONFLICT` (modification concurrente) |
 | `Exception` (catch-all) | `500 INTERNAL SERVER ERROR` |
 
 Toutes les réponses d'erreur suivent le format :
@@ -188,7 +235,7 @@ Toutes les réponses d'erreur suivent le format :
 | `DB_URL` | URL JDBC PostgreSQL |
 | `DB_USER` | Utilisateur base |
 | `DB_PASSWORD` | Mot de passe base |
-| `JPA_DDL_AUTO` | Stratégie DDL (`update`, `validate`, etc.) |
+| `JPA_DDL_AUTO` | Stratégie DDL — `validate` désormais, le schéma étant géré par Flyway |
 | `MQ_QMGR` | Queue Manager IBM MQ |
 | `MQ_CHANNEL` | Channel de connexion |
 | `MQ_CONN_NAME` | Hôte et port du serveur MQ |
@@ -208,6 +255,14 @@ Variables optionnelles :
 | `MQ_DLQ_RECOVERY_ENABLED` | `true` | Reprise planifiée des `DEAD_LETTER` non republiés |
 | `MQ_DLQ_RECOVERY_INTERVAL` | `60000` | Période de la reprise (ms) |
 | `MQ_DLQ_RECOVERY_BATCH_SIZE` | `100` | Taille de lot de la reprise |
+| `FLYWAY_ENABLED` | `true` | Migrations de schéma au démarrage |
+| `STATS_CACHE_TTL` | `15s` | Durée de vie du cache `/stats` |
+| `BATCH_RETRY_SIZE` | `500` | Taille de lot du rejeu massif |
+| `BATCH_RETRY_MAX` | `100000` | Plafond de sécurité d'un rejeu massif |
+| `RETENTION_ENABLED` | `false` | Purge planifiée des `PROCESSED` |
+| `RETENTION_PROCESSED_DAYS` | `90` | Âge au-delà duquel un `PROCESSED` est purgeable |
+| `RETENTION_BATCH_SIZE` / `RETENTION_MAX_PER_RUN` | `500` / `50000` | Bornes de la purge |
+| `RETENTION_CRON` | `0 30 3 * * *` | Déclenchement de la purge |
 
 ### 6.3 Actuator
 
@@ -217,13 +272,15 @@ Endpoints exposés : `health`, `info`, `metrics`, `env`
 
 ## 7. Tests
 
-5 classes de test couvrant :
-
 - **ApplicationTests** : chargement du contexte Spring
-- **RepositoryTest** : couche JPA (save, findById, findByMessageId, findByReference)
-- **ServiceTest** : logique métier (mocks)
+- **JmsConfigTest** : factory de listeners (session transactée, concurrence)
+- **RepositoryTest** : couche JPA — projection de liste, pagination keyset, purge
+- **ServiceTest** : logique métier (mocks), idempotence, curseur, lots bornés
+- **BatchRetryServiceTest** : enchaînement des lots, plafond, échec
+- **DeadLetterDispatcherTest** : publication après commit et confirmation `dlqPublishedAt`
 - **ControllerTest** : endpoints REST (MockMvc)
-- **MapperTest** : mapping Entity ↔ DTO
+- **ListenerTest** : erreurs définitives / transitoires
+- **MapperTest** : mapping Entity ↔ DTO, calcul de `payloadSize`
 
 Exécution :
 

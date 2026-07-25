@@ -6,7 +6,7 @@ import { MessageFilterComponent } from '../../components/message-filter/message-
 import { MessageTableComponent, TablePageEvent } from '../../components/message-table/message-table.component';
 import { MessageDrawerComponent } from '../../components/message-drawer/message-drawer.component';
 import { MessageFilters, PaymentMessage, PaymentMessageStatus } from '../../models/message.model';
-import { payloadSize } from '../../../../shared/util/payload.util';
+import { messagePayloadSize } from '../../../../shared/util/payload.util';
 
 @Component({
   selector: 'app-message-list',
@@ -181,7 +181,7 @@ export class MessageListPage implements OnInit, AfterViewInit {
       header.join(';'),
       ...rows.map((m) => [
         m.id, m.reference, m.messageId, m.messageType, m.status, m.retryCount,
-        payloadSize(m.payload), m.receivedAt, m.updatedAt, m.errorMessage,
+        messagePayloadSize(m), m.receivedAt, m.updatedAt, m.errorMessage,
       ].map(escape).join(';')),
     ].join('\r\n');
 

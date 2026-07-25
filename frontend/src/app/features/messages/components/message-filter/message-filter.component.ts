@@ -14,7 +14,7 @@ import { IconComponent } from '../../../../shared/ui/icon/icon.component';
         <div class="search">
           <app-icon name="search" [size]="16" />
           <input type="search" [ngModel]="search()" (ngModelChange)="onSearch($event)"
-                 placeholder="Filtrer la page courante (référence, message ID, type, payload…)" />
+                 placeholder="Filtrer la page courante (référence, message ID, type…)" />
         </div>
 
         <select class="select" [ngModel]="type()" (ngModelChange)="onType($event)"

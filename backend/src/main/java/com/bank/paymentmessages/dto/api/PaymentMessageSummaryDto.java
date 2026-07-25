@@ -7,10 +7,15 @@ import lombok.Data;
 
 import java.time.OffsetDateTime;
 
+/**
+ * Contrat de sortie des listes : mêmes métadonnées que {@link PaymentMessageDto} mais
+ * <b>sans le payload</b>, remplacé par sa taille en octets. Le payload complet est servi
+ * par {@code GET /api/v1/messages/{id}}.
+ */
 @Data
 @Builder
-@Schema(description = "Message de paiement, vue détaillée (payload inclus)")
-public class PaymentMessageDto {
+@Schema(description = "Message de paiement, vue de liste (sans payload)")
+public class PaymentMessageSummaryDto {
 
     @Schema(example = "1")
     private Long id;
@@ -33,9 +38,6 @@ public class PaymentMessageDto {
                     "DEAD_LETTER"
             })
     private PaymentMessageStatus status;
-
-    @Schema(example = "{\"amount\":100}")
-    private String payload;
 
     @Schema(description = "Taille du payload brut en octets", example = "412")
     private Integer payloadSize;

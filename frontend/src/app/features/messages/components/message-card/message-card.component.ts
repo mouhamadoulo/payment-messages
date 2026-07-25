@@ -3,7 +3,7 @@ import { DatePipe } from '@angular/common';
 import { PaymentMessage, PaymentMessageStatus } from '../../models/message.model';
 import { StatusBadgeComponent } from '../../../../shared/components/status-badge/status-badge.component';
 import { IconComponent } from '../../../../shared/ui/icon/icon.component';
-import { formatAmount, formatBytes, parsePayload, payloadSize } from '../../../../shared/util/payload.util';
+import { formatAmount, formatBytes, messagePayloadSize, parsePayload } from '../../../../shared/util/payload.util';
 
 @Component({
   selector: 'app-message-card',
@@ -120,5 +120,5 @@ export class MessageCardComponent {
   protected readonly amount = computed(() => formatAmount(this.parsed().amount, this.parsed().currency));
 
   protected canRetry(msg: PaymentMessage) { return msg.status === PaymentMessageStatus.FAILED; }
-  protected size(msg: PaymentMessage) { return formatBytes(payloadSize(msg.payload)); }
+  protected size(msg: PaymentMessage) { return formatBytes(messagePayloadSize(msg)); }
 }

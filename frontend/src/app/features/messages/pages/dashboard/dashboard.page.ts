@@ -133,8 +133,12 @@ const SAMPLE_SIZE = 200;
               </div>
             }
           </div>
-          <button class="btn" [disabled]="!count('FAILED')" (click)="retryFailed()">
-            Rejouer les {{ count('FAILED') }} message(s) en échec
+          <button class="btn" [disabled]="!count('FAILED') || svc.batchRetryRunning()" (click)="retryFailed()">
+            @if (svc.batchRetryRunning()) {
+              Rejeu en cours… {{ svc.batchRetryProcessed() }} message(s)
+            } @else {
+              Rejouer les {{ count('FAILED') }} message(s) en échec
+            }
           </button>
         </div>
       </section>

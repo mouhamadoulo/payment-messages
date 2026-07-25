@@ -91,26 +91,30 @@ sequenceDiagram
     Client->>Controller: GET /api/v1/messages?status=FAILED&page=0&size=20
     Controller->>Service: search(status=FAILED, receivedAfter=null, pageable)
     Service->>DB: findByStatus(FAILED, PageRequest(0,20))
-    DB-->>Service: Page<PaymentMessage>
-    Service->>Service: toDto() sur chaque entité
-    Service-->>Controller: Page<PaymentMessageDto>
-    Controller-->>Client: JSON paginé
+    DB-->>Service: Page<PaymentMessageSummary> (projection, sans payload)
+    Service->>Service: toSummaryDto() sur chaque ligne
+    Service-->>Controller: Page<PaymentMessageSummaryDto>
+    Controller-->>Client: JSON paginé (payloadSize, pas le payload)
 
     Client->>Controller: GET /api/v1/messages/stats
     Controller->>Service: getStats()
-    Service->>DB: countByStatus() (JPQL GROUP BY)
+    Service->>DB: countByStatus() (JPQL GROUP BY, sauté si le cache messageStats est chaud)
     DB-->>Service: List<Object[status, count]>
     Service->>Service: Complète avec tous les statuts (0 si absent)
     Service-->>Controller: Map<PaymentMessageStatus, Long>
     Controller-->>Client: {"RECEIVED": 15, "PROCESSED": 42, ...}
 
     Client->>Controller: POST /api/v1/messages/batch/retry-failed
-    Controller->>Service: batchRetryFailed()
-    Service->>DB: findAllByStatus(FAILED)
-    Service->>Service: Pour chaque → retryCount+1, RECEIVED (ou DEAD_LETTER + publication DLQ)
-    Service->>DB: saveAll(updated)
-    Service-->>Controller: int (nombre affecté)
-    Controller-->>Client: {"affected": 3, "status": "RECEIVED"}
+    Controller->>Service: BatchRetryService.start()
+    Service-->>Controller: BatchRetryTask (RUNNING)
+    Controller-->>Client: 202 Accepted {"taskId": "…", "state": "RUNNING"}
+    loop tant qu'un lot est plein
+        Service->>DB: findAllByStatus(FAILED, PageRequest(0,500))
+        Service->>Service: Pour chaque → retryCount+1, RECEIVED (ou DEAD_LETTER + événement DLQ)
+        Service->>DB: saveAll(lot)
+    end
+    Client->>Controller: GET /api/v1/messages/batch/retry-failed/{taskId}
+    Controller-->>Client: {"state": "COMPLETED", "processed": 1200}
 ```
 
 ---

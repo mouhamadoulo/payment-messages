@@ -1,38 +1,68 @@
 package com.bank.paymentmessages.service;
 
+import com.bank.paymentmessages.dto.api.CursorPageDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageDto;
+import com.bank.paymentmessages.dto.api.PaymentMessageSummaryDto;
 import com.bank.paymentmessages.dto.mq.PaymentMessageEvent;
 import com.bank.paymentmessages.entity.PaymentMessage;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
 import com.bank.paymentmessages.mapper.PaymentMessageMapper;
 import com.bank.paymentmessages.mq.DeadLetterPublisher;
+import com.bank.paymentmessages.mq.DeadLetterRequestedEvent;
 import com.bank.paymentmessages.repository.PaymentMessageRepository;
+import com.bank.paymentmessages.repository.PaymentMessageSummary;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import java.time.LocalDateTime;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
 
+/**
+ * Logique métier des messages de paiement.
+ * <p>
+ * La classe est transactionnelle en lecture seule par défaut ; chaque écriture est
+ * annotée explicitement. Deux exceptions notables :
+ * <ul>
+ *   <li>les insertions d'ingestion s'exécutent <b>hors</b> transaction englobante
+ *       ({@link Propagation#NOT_SUPPORTED}) pour que la violation de contrainte d'un
+ *       doublon reste confinée à la transaction interne de {@code repository.save} ;</li>
+ *   <li>les publications DLQ sont émises sous forme d'événement et exécutées
+ *       <b>après commit</b> (cf. {@code DeadLetterDispatcher}).</li>
+ * </ul>
+ */
 @Service
+@Transactional(readOnly = true)
 public class PaymentMessageService {
+
+    /** Nom du cache des statistiques (cf. {@code spring.cache}). */
+    public static final String STATS_CACHE = "messageStats";
 
     private final PaymentMessageRepository repository;
     private final DeadLetterPublisher deadLetterPublisher;
+    private final ApplicationEventPublisher events;
     private final int maxRetries;
 
     public PaymentMessageService(PaymentMessageRepository repository,
                                  DeadLetterPublisher deadLetterPublisher,
+                                 ApplicationEventPublisher events,
                                  @Value("${ibm.mq.max-retries}") int maxRetries){
         this.repository = repository;
         this.deadLetterPublisher = deadLetterPublisher;
+        this.events = events;
         this.maxRetries = maxRetries;
     }
 
@@ -46,6 +76,8 @@ public class PaymentMessageService {
      *
      * @return {@code true} si la ligne a été créée, {@code false} si le message était déjà en base
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
     public boolean saveMessage(PaymentMessageEvent event, String rawPayload) {
 
         PaymentMessage message = PaymentMessageMapper.toEntity(event, rawPayload);
@@ -58,6 +90,8 @@ public class PaymentMessageService {
      *
      * @return {@code true} si la ligne a été créée, {@code false} si le message était déjà en base
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
     public boolean savePermanentFailure(String messageId, String reference, String messageType,
                                         String rawPayload, String errorMessage) {
 
@@ -91,9 +125,13 @@ public class PaymentMessageService {
     /**
      * Rattrape les messages marqués {@code DEAD_LETTER} en base dont la republication
      * sur la DLQ n'a jamais abouti, pour supprimer la divergence base / broker.
+     * <p>
+     * Volontairement hors transaction englobante : la publication précède l'écriture de
+     * {@code dlqPublishedAt}, qui n'est posé que sur accusé du broker.
      *
      * @return le nombre de messages effectivement republiés
      */
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public int republishPendingDeadLetters(int batchSize) {
 
         List<PaymentMessage> pending = repository.findByStatusAndDlqPublishedAtIsNull(
@@ -102,7 +140,7 @@ public class PaymentMessageService {
         List<PaymentMessage> republished = new ArrayList<>();
         for (PaymentMessage message : pending) {
             if (deadLetterPublisher.publish(message)) {
-                message.setDlqPublishedAt(LocalDateTime.now());
+                message.setDlqPublishedAt(OffsetDateTime.now());
                 republished.add(message);
             }
         }
@@ -111,25 +149,61 @@ public class PaymentMessageService {
         return republished.size();
     }
 
-    public Page<PaymentMessageDto> findAll(Pageable pageable) {
+    public Page<PaymentMessageSummaryDto> findAll(Pageable pageable) {
 
-        return repository.findAll(pageable).map(PaymentMessageMapper::toDto);
+        return repository.findAllProjectedBy(pageable).map(PaymentMessageMapper::toSummaryDto);
     }
 
-    public Page<PaymentMessageDto> search(PaymentMessageStatus status, LocalDateTime receivedAfter, Pageable pageable) {
+    public Page<PaymentMessageSummaryDto> search(PaymentMessageStatus status, OffsetDateTime receivedAfter, Pageable pageable) {
         if (status != null && receivedAfter != null) {
             return repository.findByStatusAndReceivedAtAfter(status, receivedAfter, pageable)
-                    .map(PaymentMessageMapper::toDto);
+                    .map(PaymentMessageMapper::toSummaryDto);
         }
         if (status != null) {
             return repository.findByStatus(status, pageable)
-                    .map(PaymentMessageMapper::toDto);
+                    .map(PaymentMessageMapper::toSummaryDto);
         }
         if (receivedAfter != null) {
             return repository.findByReceivedAtAfter(receivedAfter, pageable)
-                    .map(PaymentMessageMapper::toDto);
+                    .map(PaymentMessageMapper::toSummaryDto);
         }
         return findAll(pageable);
+    }
+
+    /**
+     * Navigation séquentielle par curseur : ni {@code COUNT(*)} ni {@code OFFSET}, donc un
+     * coût indépendant de la profondeur. Le tri est figé sur {@code receivedAt DESC, id DESC}.
+     *
+     * @param cursor curseur opaque rendu par l'appel précédent, {@code null} pour la première page
+     */
+    public CursorPageDto<PaymentMessageSummaryDto> searchByCursor(PaymentMessageStatus status,
+                                                                  OffsetDateTime receivedAfter,
+                                                                  String cursor,
+                                                                  int size) {
+
+        Cursor position = Cursor.decode(cursor);
+
+        // Une ligne de plus que demandé : sa présence signale qu'il reste une page.
+        List<PaymentMessageSummary> rows = repository.findNextPage(
+                status,
+                receivedAfter,
+                position == null ? null : position.receivedAt(),
+                position == null ? null : position.id(),
+                PageRequest.ofSize(size + 1));
+
+        boolean hasNext = rows.size() > size;
+        List<PaymentMessageSummary> page = hasNext ? rows.subList(0, size) : rows;
+
+        String nextCursor = null;
+        if (hasNext) {
+            PaymentMessageSummary last = page.get(page.size() - 1);
+            nextCursor = new Cursor(last.receivedAt(), last.id()).encode();
+        }
+
+        return new CursorPageDto<>(
+                page.stream().map(PaymentMessageMapper::toSummaryDto).toList(),
+                nextCursor,
+                hasNext);
     }
 
     public PaymentMessageDto findById(Long id) {
@@ -140,6 +214,12 @@ public class PaymentMessageService {
                         new PaymentMessageNotFoundException(id));
     }
 
+    /**
+     * Agrégat par statut : requête la plus coûteuse du système et la plus souvent appelée
+     * par le front. Le résultat est mis en cache quelques secondes et invalidé par toute
+     * écriture, plutôt que recalculé à chaque appel.
+     */
+    @Cacheable(STATS_CACHE)
     public Map<PaymentMessageStatus, Long> getStats() {
         List<Object[]> results = repository.countByStatus();
         Map<PaymentMessageStatus, Long> stats = new LinkedHashMap<>();
@@ -152,6 +232,8 @@ public class PaymentMessageService {
         return stats;
     }
 
+    @Transactional
+    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
     public void deleteById(Long id) {
         if (!repository.existsById(id)) {
             throw new PaymentMessageNotFoundException(id);
@@ -159,8 +241,23 @@ public class PaymentMessageService {
         repository.deleteById(id);
     }
 
-    public int batchRetryFailed() {
-        List<PaymentMessage> messages = repository.findAllByStatus(PaymentMessageStatus.FAILED);
+    /**
+     * Rejoue un lot borné de messages {@code FAILED}.
+     * <p>
+     * Le rejeu global ne charge plus toute la table en mémoire : l'orchestration
+     * ({@code BatchRetryService}) rappelle cette méthode tant qu'elle renvoie un lot plein,
+     * chaque lot ayant sa propre transaction.
+     *
+     * @return le nombre de messages traités dans ce lot
+     */
+    @Transactional
+    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
+    public int retryFailedBatch(int batchSize) {
+
+        Page<PaymentMessage> batch = repository.findAllByStatus(
+                PaymentMessageStatus.FAILED, PageRequest.of(0, batchSize));
+
+        List<PaymentMessage> messages = batch.getContent();
         for (PaymentMessage message : messages) {
             applyRetry(message);
         }
@@ -168,6 +265,8 @@ public class PaymentMessageService {
         return messages.size();
     }
 
+    @Transactional
+    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
     public PaymentMessageDto retry(Long id) {
         PaymentMessage message = repository.findById(id)
                 .orElseThrow(() -> new PaymentMessageNotFoundException(id));
@@ -179,17 +278,45 @@ public class PaymentMessageService {
         return PaymentMessageMapper.toDto(repository.save(message));
     }
 
+    /**
+     * Le verrou optimiste ({@code @Version}) arbitre deux changements de statut
+     * concurrents : le second échoue au lieu d'écraser le premier.
+     */
+    @Transactional
+    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
     public PaymentMessageDto updateStatus(Long id, PaymentMessageStatus newStatus) {
         PaymentMessage message = repository.findById(id)
                 .orElseThrow(() -> new PaymentMessageNotFoundException(id));
         boolean entersDeadLetter = newStatus == PaymentMessageStatus.DEAD_LETTER
                 && message.getStatus() != PaymentMessageStatus.DEAD_LETTER;
         message.setStatus(newStatus);
-        message.setUpdatedAt(LocalDateTime.now());
-        if (entersDeadLetter && deadLetterPublisher.publish(message)) {
-            message.setDlqPublishedAt(LocalDateTime.now());
+        message.setUpdatedAt(OffsetDateTime.now());
+        PaymentMessage saved = repository.save(message);
+        if (entersDeadLetter) {
+            requestDeadLetterPublication(saved);
         }
-        return PaymentMessageMapper.toDto(repository.save(message));
+        return PaymentMessageMapper.toDto(saved);
+    }
+
+    /**
+     * Purge un lot borné de messages {@code PROCESSED} antérieurs à la date donnée.
+     * Sans rétention, la table et ses index croissent indéfiniment.
+     *
+     * @return le nombre de lignes supprimées dans ce lot
+     */
+    @Transactional
+    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
+    public int purgeProcessedBefore(OffsetDateTime cutoff, int batchSize) {
+
+        List<Long> ids = repository.findPurgeableIds(
+                PaymentMessageStatus.PROCESSED, cutoff, PageRequest.ofSize(batchSize));
+
+        if (ids.isEmpty()) {
+            return 0;
+        }
+
+        repository.deleteAllByIdInBatch(ids);
+        return ids.size();
     }
 
     /**
@@ -199,19 +326,25 @@ public class PaymentMessageService {
     private void applyRetry(PaymentMessage message) {
         int attempt = message.getRetryCount() == null ? 1 : message.getRetryCount() + 1;
         message.setRetryCount(attempt);
-        message.setUpdatedAt(LocalDateTime.now());
+        message.setUpdatedAt(OffsetDateTime.now());
 
         if (attempt > maxRetries) {
             message.setStatus(PaymentMessageStatus.DEAD_LETTER);
             message.setErrorMessage("Abandonné après " + maxRetries + " tentatives");
-            if (deadLetterPublisher.publish(message)) {
-                message.setDlqPublishedAt(LocalDateTime.now());
-            }
+            requestDeadLetterPublication(message);
             return;
         }
 
         message.setStatus(PaymentMessageStatus.RECEIVED);
         message.setErrorMessage(null);
+    }
+
+    /**
+     * L'envoi effectif est différé après le commit : tant que la transaction n'est pas
+     * confirmée, rien ne doit atterrir sur la DLQ.
+     */
+    private void requestDeadLetterPublication(PaymentMessage message) {
+        events.publishEvent(new DeadLetterRequestedEvent(message.getId()));
     }
 
 }

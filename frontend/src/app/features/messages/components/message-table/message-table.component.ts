@@ -6,7 +6,7 @@ import { Page } from '../../models/page.model';
 import { AutoAnimateDirective } from '../../../../shared/ui/auto-animate.directive';
 import { StatusBadgeComponent } from '../../../../shared/components/status-badge/status-badge.component';
 import { IconComponent } from '../../../../shared/ui/icon/icon.component';
-import { formatBytes, payloadSize } from '../../../../shared/util/payload.util';
+import { formatBytes, messagePayloadSize } from '../../../../shared/util/payload.util';
 
 export interface TablePageEvent { pageIndex: number; pageSize: number; }
 
@@ -224,7 +224,7 @@ export class MessageTableComponent {
     return `Affichage ${start}–${end} sur ${p.totalElements} messages`;
   });
 
-  protected size(m: PaymentMessage) { return formatBytes(payloadSize(m.payload)); }
+  protected size(m: PaymentMessage) { return formatBytes(messagePayloadSize(m)); }
 
   protected go(delta: number) {
     const p = this.page();

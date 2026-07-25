@@ -39,6 +39,14 @@ export function payloadSize(raw: string | null | undefined): number {
   return new TextEncoder().encode(raw).length;
 }
 
+/**
+ * Taille à afficher : celle calculée par le serveur (seule disponible dans les listes,
+ * qui ne transportent plus le payload), avec repli sur une mesure locale.
+ */
+export function messagePayloadSize(msg: { payloadSize?: number | null; payload?: string | null }): number {
+  return msg.payloadSize ?? payloadSize(msg.payload);
+}
+
 export function formatBytes(bytes: number): string {
   if (!bytes) return '—';
   return bytes > 1024 ? `${(bytes / 1024).toFixed(1)} Ko` : `${bytes} o`;

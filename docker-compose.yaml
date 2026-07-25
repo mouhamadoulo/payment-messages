@@ -67,7 +67,7 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/payment_messages?reWriteBatchedInserts=true
       DB_USER: payment
       DB_PASSWORD: payment
-      JPA_DDL_AUTO: update
+      JPA_DDL_AUTO: validate   # schéma géré par Flyway (backend/src/main/resources/db/migration)
       DB_POOL_MAX_SIZE: 20
       DB_POOL_MIN_IDLE: 5
       MQ_QMGR: QM1

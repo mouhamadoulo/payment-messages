@@ -1,12 +1,15 @@
 import { Injectable, signal, inject, computed, WritableSignal } from '@angular/core';
 import { HttpClient, HttpParams } from '@angular/common/http';
-import { PaymentMessage, PaymentMessageStatus, MessageFilters, MqConfig } from '../models/message.model';
+import { BatchRetryTask, PaymentMessage, PaymentMessageStatus, MessageFilters, MqConfig } from '../models/message.model';
 import { Page } from '../models/page.model';
 import { API_CONFIG } from '../../../core/config/api.config';
 import { NotificationService } from '../../../core/services/notification.service';
 import { Router } from '@angular/router';
 
 export const DEFAULT_SORT = 'receivedAt,desc';
+
+/** Intervalle d'interrogation de l'état d'un rejeu massif. */
+const BATCH_RETRY_POLL_MS = 1500;
 
 @Injectable({ providedIn: 'root' })
 export class MessageService {
@@ -35,6 +38,10 @@ export class MessageService {
   readonly lastUpdated = signal<Date | null>(null);
   /** id du message dont le statut vient de changer — déclenche un flash visuel */
   readonly changedId = signal<number | null>(null);
+  /** un rejeu massif est en cours côté serveur */
+  readonly batchRetryRunning = signal(false);
+  /** nombre de messages déjà rejoués par le rejeu massif en cours */
+  readonly batchRetryProcessed = signal(0);
 
   /** signale un changement pour animer la ligne/carte concernée, puis se réinitialise */
   private flash(id: number) {
@@ -45,6 +52,10 @@ export class MessageService {
   readonly total = computed(() =>
     Object.values(this.stats() ?? {}).reduce((a, b) => a + (b ?? 0), 0));
 
+  /**
+   * Les réponses de liste ne transportent plus le payload (seule sa taille est renvoyée) :
+   * le filtre client porte donc sur les métadonnées, pas sur le contenu du message.
+   */
   readonly filteredMessages = computed(() => {
     const term = this.searchTerm().trim().toLowerCase();
     const list = this.messages();
@@ -52,8 +63,7 @@ export class MessageService {
     return list.filter((m) =>
       m.reference?.toLowerCase().includes(term) ||
       m.messageId?.toLowerCase().includes(term) ||
-      m.messageType?.toLowerCase().includes(term) ||
-      m.payload?.toLowerCase().includes(term));
+      m.messageType?.toLowerCase().includes(term));
   });
 
   /** dernière requête de liste jouée, rejouée par `refreshAll()` */
@@ -123,7 +133,8 @@ export class MessageService {
 
   /** Volume des dernières 24 h : une page de taille 1, seul `totalElements` est exploité. */
   loadVolume24h() {
-    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString().slice(0, 19);
+    // ISO complet, fuseau inclus : le backend attend un OffsetDateTime.
+    const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
     const params = new HttpParams().set('page', '0').set('size', '1').set('receivedAfter', since);
     this.http.get<Page<PaymentMessage>>(API_CONFIG.messages, { params })
       .subscribe({
@@ -177,14 +188,47 @@ export class MessageService {
       });
   }
 
+  /**
+   * Le rejeu massif s'exécute côté serveur par lots bornés : l'API répond 202 avec un
+   * taskId, dont l'avancement est interrogé jusqu'à la fin du traitement.
+   */
   batchRetryFailed() {
-    this.http.post<{ affected: number; status: string }>(API_CONFIG.batchRetry, {})
+    this.batchRetryRunning.set(true);
+    this.http.post<BatchRetryTask>(API_CONFIG.batchRetry, {})
       .subscribe({
-        next: (res) => {
-          this.notification.success(`${res.affected} message(s) relancé(s)`);
-          this.loadStats();
+        next: (task) => {
+          this.notification.success('Rejeu massif démarré');
+          this.pollBatchRetry(task.taskId);
         },
-        error: () => this.notification.error('Erreur lors de la relance batch')
+        error: () => {
+          this.batchRetryRunning.set(false);
+          this.notification.error('Erreur lors de la relance batch');
+        }
+      });
+  }
+
+  private pollBatchRetry(taskId: string) {
+    this.http.get<BatchRetryTask>(`${API_CONFIG.batchRetry}/${taskId}`)
+      .subscribe({
+        next: (task) => {
+          this.batchRetryProcessed.set(task.processed);
+          if (task.state === 'RUNNING') {
+            setTimeout(() => this.pollBatchRetry(taskId), BATCH_RETRY_POLL_MS);
+            return;
+          }
+          this.batchRetryRunning.set(false);
+          this.loadStats();
+          if (task.state === 'COMPLETED') {
+            this.notification.success(`${task.processed} message(s) relancé(s)`
+              + (task.truncated ? ' — plafond atteint, relancer pour poursuivre' : ''));
+          } else {
+            this.notification.error('Le rejeu massif a échoué');
+          }
+        },
+        error: () => {
+          this.batchRetryRunning.set(false);
+          this.notification.error('Suivi du rejeu massif interrompu');
+        }
       });
   }
 

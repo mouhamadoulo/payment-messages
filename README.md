@@ -240,11 +240,13 @@ Base path : `/api/v1/messages`
 
 | Méthode | Path | Description |
 |---|---|---|
-| `GET` | `/api/v1/messages` | Liste paginée (filtres : status, receivedAfter) |
+| `GET` | `/api/v1/messages` | Liste paginée, sans payload (filtres : status, receivedAfter) |
+| `GET` | `/api/v1/messages/cursor` | Liste paginée par curseur (keyset) |
 | `GET` | `/api/v1/messages/stats` | Statistiques par statut |
-| `GET` | `/api/v1/messages/{id}` | Détail d'un message |
+| `GET` | `/api/v1/messages/{id}` | Détail d'un message (payload inclus) |
 | `DELETE` | `/api/v1/messages/{id}` | Suppression (204) |
-| `POST` | `/api/v1/messages/batch/retry-failed` | Relance batch des échecs |
+| `POST` | `/api/v1/messages/batch/retry-failed` | Relance batch des échecs (202 + `taskId`) |
+| `GET` | `/api/v1/messages/batch/retry-failed/{taskId}` | Suivi de la relance batch |
 | `POST` | `/api/v1/messages/{id}/retry` | Relance individuelle |
 | `PUT` | `/api/v1/messages/{id}/status` | Mise à jour du statut |
 

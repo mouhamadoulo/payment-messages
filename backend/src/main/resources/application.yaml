@@ -18,15 +18,30 @@ spring:
       connection-timeout: 3000
       leak-detection-threshold: 20000
 
+  # Le schéma est piloté par les migrations (db/migration), pas par Hibernate :
+  # migrations relisibles, rejouables et réversibles, sans DDL implicite au démarrage.
+  flyway:
+    enabled: ${FLYWAY_ENABLED:true}
+    # Les bases antérieures à Flyway ont été créées par `ddl-auto: update` ; baseline 0
+    # laisse V1 (idempotente) s'appliquer malgré tout, V2 complète ce qui manque.
+    baseline-on-migrate: true
+    baseline-version: 0
+
   jpa:
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO}
+      # `validate` : Hibernate contrôle l'accord entité / schéma, il ne le modifie plus.
+      ddl-auto: ${JPA_DDL_AUTO:validate}
     properties:
       hibernate:
         order_inserts: true
         order_updates: true
         jdbc:
           batch_size: 50
+
+  cache:
+    cache-names: messageStats
+    caffeine:
+      spec: maximumSize=16,expireAfterWrite=${STATS_CACHE_TTL:15s},recordStats
 
   jms:
     listener:
@@ -52,6 +67,21 @@ ibm:
       interval: ${MQ_DLQ_RECOVERY_INTERVAL:60000}
       batch-size: ${MQ_DLQ_RECOVERY_BATCH_SIZE:100}
 
+
+app:
+  # Rejeu massif des messages FAILED : lots bornés, exécutés en tâche de fond.
+  batch-retry:
+    batch-size: ${BATCH_RETRY_SIZE:500}
+    max-messages: ${BATCH_RETRY_MAX:100000}
+
+  # Rétention : purge planifiée des messages PROCESSED. Désactivée par défaut,
+  # la suppression étant irréversible (cf. MessageRetentionJob).
+  retention:
+    enabled: ${RETENTION_ENABLED:false}
+    processed-days: ${RETENTION_PROCESSED_DAYS:90}
+    batch-size: ${RETENTION_BATCH_SIZE:500}
+    max-per-run: ${RETENTION_MAX_PER_RUN:50000}
+    cron: ${RETENTION_CRON:0 30 3 * * *}
 
 server:
   port: ${SERVER_PORT}

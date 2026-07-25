@@ -1,7 +1,12 @@
 package com.bank.paymentmessages.controller;
 
+import com.bank.paymentmessages.dto.api.CursorPageDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageDto;
+import com.bank.paymentmessages.dto.api.PaymentMessageSummaryDto;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
+import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
+import com.bank.paymentmessages.service.BatchRetryService;
+import com.bank.paymentmessages.service.BatchRetryTask;
 import com.bank.paymentmessages.service.PaymentMessageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -16,7 +21,7 @@ import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 import java.util.Map;
 
 
@@ -27,27 +32,50 @@ import java.util.Map;
 public class PaymentMessageController {
 
     private final PaymentMessageService service;
+    private final BatchRetryService batchRetryService;
 
-    public PaymentMessageController(PaymentMessageService service){
+    public PaymentMessageController(PaymentMessageService service, BatchRetryService batchRetryService){
         this.service = service;
+        this.batchRetryService = batchRetryService;
     }
 
     @GetMapping
     @Operation(
             summary = "Pagine et filtre la liste des messages",
-            description = "Retourne une page de messages de paiement. Filtres optionnels : status, receivedAfter"
+            description = "Retourne une page de messages de paiement, sans leur payload : seule sa taille "
+                    + "(payloadSize) est renvoyée, le payload complet est servi par GET /{id}. "
+                    + "Filtres optionnels : status, receivedAfter"
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Page de messages récupérée avec succès")
     })
-    public Page<PaymentMessageDto> findAll(
+    public Page<PaymentMessageSummaryDto> findAll(
             @RequestParam(required = false) PaymentMessageStatus status,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime receivedAfter,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime receivedAfter,
             @PageableDefault(size = 20, sort = "receivedAt", direction = Sort.Direction.DESC) Pageable pageable) {
         if (status != null || receivedAfter != null) {
             return service.search(status, receivedAfter, pageable);
         }
         return service.findAll(pageable);
+    }
+
+    @GetMapping("/cursor")
+    @Operation(
+            summary = "Pagine la liste par curseur (keyset)",
+            description = "Navigation séquentielle sans COUNT(*) ni OFFSET : coût constant quelle que soit "
+                    + "la profondeur. Le tri est figé sur receivedAt DESC, id DESC. Repasser le nextCursor "
+                    + "de la réponse précédente pour obtenir la page suivante."
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Page de messages récupérée avec succès"),
+            @ApiResponse(responseCode = "400", description = "Curseur illisible")
+    })
+    public CursorPageDto<PaymentMessageSummaryDto> findByCursor(
+            @RequestParam(required = false) PaymentMessageStatus status,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime receivedAfter,
+            @Parameter(description = "Curseur rendu par l'appel précédent") @RequestParam(required = false) String cursor,
+            @RequestParam(defaultValue = "20") int size) {
+        return service.searchByCursor(status, receivedAfter, cursor, size);
     }
 
     @GetMapping("/stats")
@@ -84,16 +112,30 @@ public class PaymentMessageController {
     }
 
     @PostMapping("/batch/retry-failed")
+    @ResponseStatus(HttpStatus.ACCEPTED)
     @Operation(summary = "Relance tous les messages FAILED",
-            description = "Incrémente retryCount et repasse chaque message en RECEIVED. "
-                    + "Au-delà du seuil ibm.mq.max-retries, le message part en DEAD_LETTER "
-                    + "et son payload est republié sur la Dead Letter Queue.")
+            description = "Traitement de fond par lots bornés : la réponse est immédiate (202) et rend un "
+                    + "taskId à suivre via GET /batch/retry-failed/{taskId}. Chaque message voit son "
+                    + "retryCount incrémenté et repasse en RECEIVED ; au-delà du seuil ibm.mq.max-retries, "
+                    + "il part en DEAD_LETTER et son payload est republié sur la Dead Letter Queue. "
+                    + "Un seul rejeu massif peut être en cours à la fois.")
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "Messages relancés")
+            @ApiResponse(responseCode = "202", description = "Rejeu massif accepté")
     })
-    public Map<String, Object> batchRetryFailed() {
-        int count = service.batchRetryFailed();
-        return Map.of("affected", count, "status", "RECEIVED");
+    public BatchRetryTask batchRetryFailed() {
+        return batchRetryService.start();
+    }
+
+    @GetMapping("/batch/retry-failed/{taskId}")
+    @Operation(summary = "Suit l'avancement d'un rejeu massif")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "État de la tâche"),
+            @ApiResponse(responseCode = "404", description = "Tâche inconnue")
+    })
+    public BatchRetryTask batchRetryStatus(
+            @Parameter(description = "Identifiant rendu au démarrage du rejeu") @PathVariable String taskId) {
+        return batchRetryService.find(taskId)
+                .orElseThrow(() -> PaymentMessageNotFoundException.forBatchRetryTask(taskId));
     }
 
     @PostMapping("/{id}/retry")

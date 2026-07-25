@@ -5,7 +5,7 @@ import { PaymentMessage, PaymentMessageStatus } from '../../models/message.model
 import { StatusBadgeComponent } from '../../../../shared/components/status-badge/status-badge.component';
 import { IconComponent } from '../../../../shared/ui/icon/icon.component';
 import { NotificationService } from '../../../../core/services/notification.service';
-import { formatAmount, formatBytes, parsePayload, payloadSize } from '../../../../shared/util/payload.util';
+import { formatAmount, formatBytes, messagePayloadSize, parsePayload } from '../../../../shared/util/payload.util';
 
 @Component({
   selector: 'app-message-drawer',
@@ -146,7 +146,7 @@ export class MessageDrawerComponent {
       { k: 'Reçu le', v: this.datePipe.transform(m.receivedAt, 'dd/MM/yyyy HH:mm:ss') ?? '—' },
       { k: 'Mis à jour', v: this.datePipe.transform(m.updatedAt, 'dd/MM/yyyy HH:mm:ss') ?? '—' },
       { k: 'Tentatives', v: String(m.retryCount ?? 0) },
-      { k: 'Taille payload', v: formatBytes(payloadSize(m.payload)) },
+      { k: 'Taille payload', v: formatBytes(messagePayloadSize(m)) },
     ];
   });
 
