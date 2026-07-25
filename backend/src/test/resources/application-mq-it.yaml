@@ -1,0 +1,38 @@
+# Profil du test d'intégration IBM MQ (`PaymentMessageMqIT`), activé par-dessus
+# `test` + `integration`. Seul contexte où le conteneur d'écoute JMS démarre réellement :
+# les autres profils le laissent à l'arrêt puisqu'aucun broker ne tourne.
+#
+# Les files reprennent les noms de infra/mq/payment-queues.mqsc, rejoué par l'image à la
+# création du gestionnaire de files : c'est ce script qui pose BOTHRESH / BOQNAME, donc le
+# garde-fou anti-message empoisonné que ce test vérifie.
+
+spring:
+  jms:
+    listener:
+      auto-startup: true
+      # Un seul consommateur : l'ordre des redélivrances reste observable.
+      min-concurrency: 1
+      max-concurrency: 1
+    template:
+      # Sans borne, JmsTemplate.receive() attend indéfiniment : le test se bloquerait sur
+      # une file vide au lieu de conclure « plus rien à consommer ».
+      receive-timeout: 2s
+
+ibm:
+  mq:
+    # conn-name est fourni par @DynamicPropertySource (port publié par le conteneur).
+    queue-manager: QM1
+    channel: DEV.APP.SVRCONN
+    user: app
+    password: passw0rd
+    queue: PAYMENT.REQUEST.QUEUE
+    dlq-queue: PAYMENT.DLQ.QUEUE
+    max-retries: 3
+    dlq-recovery:
+      # La reprise planifiée republierait en arrière-plan et brouillerait les assertions.
+      enabled: false
+
+management:
+  health:
+    jms:
+      enabled: true

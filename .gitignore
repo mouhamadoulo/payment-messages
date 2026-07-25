@@ -1,0 +1,27 @@
+# Règles communes au dépôt. Les deux modules ont leur propre .gitignore
+# (backend/.gitignore, frontend/.gitignore) pour ce qui leur est spécifique.
+
+# Journaux et clichés d'incident du client IBM MQ. Écrits dans le répertoire de travail
+# de la JVM tant que les propriétés de redirection ne sont pas posées
+# (cf. PaymentMessagesApplication#redirectMqClientLogs).
+mqjms.log*
+mqjms.trc*
+AMQ*.FDC
+FDC/
+logs/
+*.log
+
+# Environnement local
+.env
+.env.*
+!.env.example
+
+# Éditeurs et systèmes de fichiers
+.idea/
+.vscode/
+*.iml
+.DS_Store
+Thumbs.db
+
+# Résultats des tirs de charge (cf. infra/load)
+infra/load/results/

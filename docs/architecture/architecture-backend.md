@@ -356,6 +356,8 @@ la chaîne de sécurité applicative et ne doit pas être exposé.
 
 ## 7. Tests
 
+### 7.1 Tests unitaires et de tranche (Surefire, `*Test`, H2)
+
 - **ApplicationTests** : chargement du contexte Spring
 - **JmsConfigTest** : factory de listeners (session transactée, concurrence)
 - **RepositoryTest** : couche JPA — projection de liste, pagination keyset, purge
@@ -371,11 +373,37 @@ la chaîne de sécurité applicative et ne doit pas être exposé.
 - **ListenerTest** : erreurs définitives / transitoires, chronomètre, purge du MDC
 - **MapperTest** : mapping Entity ↔ DTO, calcul de `payloadSize`
 
-Exécution :
+### 7.2 Tests d'intégration (Failsafe, `*IT`, Testcontainers)
+
+Ces tests portent sur ce que H2 ne peut pas reproduire : les migrations sont écrites pour
+PostgreSQL et ne s'exécutent pas sous H2, où le schéma est généré par Hibernate. Une
+migration cassée passait donc `verify` sans être vue.
+
+- **SchemaMigrationIT** (PostgreSQL) : migrations Flyway réellement appliquées, accord
+  entité / schéma (`ddl-auto: validate`), colonnes en `timestamptz`, index de requête,
+  unicité de `message_id`
+- **PaymentMessagePersistenceIT** (PostgreSQL) : insertion concurrente arbitrée par la
+  contrainte d'unicité, aller-retour d'horodatage entre fuseaux, parcours complet du
+  curseur, publication DLQ après commit et reprise après refus, rétention
+- **PaymentMessageMqIT** (IBM MQ + PostgreSQL) : ingestion de bout en bout, rejet définitif
+  acquitté, redélivrance après rollback de session transactée, idempotence, bascule DLQ
+  acceptée par le gestionnaire de files. **Désactivé par défaut** (`-Dmq.it=true`).
+
+### 7.3 Exécution
 
 ```bash
 cd backend
-./mvnw verify
+./mvnw test                     # unitaires seuls, sans Docker
+./mvnw verify                   # + tests d'intégration (Testcontainers)
+./mvnw verify -Dmq.it=true      # + le tir IBM MQ
 ```
 
-Un pipeline CI (GitHub Actions) exécute `mvnw verify` à chaque push et PR.
+Sans démon Docker, les `*IT` sont *skipped* et le build reste vert (`@RequiresDocker`).
+Le pipeline CI (GitHub Actions) exécute `mvnw verify` à chaque push et PR, sur un runner
+qui dispose de Docker : c'est là que les migrations sont confrontées à PostgreSQL.
+
+### 7.4 Tirs de charge
+
+`infra/load/` : `MqInjector.java` (débit d'ingestion en messages/s) et `k6-api.js` (p95 des
+listes, du curseur et de `/stats`, avec seuils bloquants). Détails dans
+`infra/load/README.md`.

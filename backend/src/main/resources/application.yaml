@@ -138,6 +138,21 @@ management:
   endpoint:
     health:
       show-details: when-authorized
+      # Sondes distinctes : un socket ouvert ne signifie pas que l'application est prête.
+      # `readiness` conditionne l'envoi de trafic (healthcheck Compose, readinessProbe
+      # Kubernetes) ; `liveness` ne doit provoquer un redémarrage que si le contexte est
+      # irrécupérable — y mettre une dépendance externe ferait redémarrer en boucle une
+      # application saine dont la base est momentanément absente.
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # La base est ajoutée : sans elle aucun appel n'aboutit, l'instance ne doit pas
+        # recevoir de trafic. Le broker n'y est **pas** : une coupure MQ suspend
+        # l'ingestion mais l'API continue de servir les lectures et les rejeux.
+        readiness:
+          include: readinessState,db
   # Par défaut les endpoints restent sur le port de l'API, où la chaîne de sécurité les
   # filtre (health/info publics, metrics/prometheus authentifiés). MANAGEMENT_PORT les
   # déplace sur un port dédié : ils quittent alors le contexte applicatif, donc la chaîne

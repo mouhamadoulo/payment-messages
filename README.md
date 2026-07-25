@@ -287,8 +287,14 @@ Swagger UI : `http://localhost:8080/swagger-ui.html`
 
 ```bash
 cd backend
-./mvnw verify
+./mvnw verify                  # tests unitaires (H2) + tests d'intégration (Testcontainers)
+./mvnw test                    # tests unitaires seuls, sans Docker
+./mvnw verify -Dmq.it=true     # ajoute le tir de bout en bout sur un vrai IBM MQ
 ```
+
+`verify` enchaîne deux campagnes : **Surefire** exécute les `*Test` sur H2, **Failsafe** les
+`*IT` sur des services réels démarrés par Testcontainers. Sans démon Docker, les `*IT` sont
+*skipped* et le build reste vert.
 
 Tests couverts :
 
@@ -304,6 +310,14 @@ Tests couverts :
 | `HttpCacheAndCorrelationTest` | Intégration | `ETag`/`304`, `X-Request-Id` |
 | `PaymentMessageStatusTest` | Unitaire | Machine à états des statuts |
 | `PaymentMessageMapperTest` | Unitaire | Mapping Entity ↔ DTO |
+| `SchemaMigrationIT` | Testcontainers (PostgreSQL) | Migrations Flyway rejouées, `timestamptz`, index, unicité |
+| `PaymentMessagePersistenceIT` | Testcontainers (PostgreSQL) | Insertion concurrente, curseur, DLQ après commit, rétention |
+| `PaymentMessageMqIT` | Testcontainers (IBM MQ + PostgreSQL) | Redélivrance, idempotence, bascule DLQ — `-Dmq.it=true` |
+
+### Tirs de charge
+
+`infra/load/` : injecteur JMS (`MqInjector.java`, messages/s en ingestion) et scénario k6
+(`k6-api.js`, p95 des endpoints de liste). Voir `infra/load/README.md`.
 
 ### Frontend
 
