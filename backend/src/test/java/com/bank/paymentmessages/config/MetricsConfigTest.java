@@ -8,7 +8,6 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
 
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -29,23 +28,16 @@ class MetricsConfigTest {
 
     @Test
     void prometheusEndpointShouldExposeBusinessMetrics() throws Exception {
-        mockMvc.perform(get("/actuator/prometheus").with(jwt()))
+        mockMvc.perform(get("/actuator/prometheus"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("payment_messages_pending")))
                 .andExpect(content().string(org.hamcrest.Matchers.containsString("payment_messages_failed")));
     }
 
-    /** Les métriques renseignent sur le trafic et l'état interne : elles restent fermées. */
-    @Test
-    void prometheusEndpointShouldRequireAuthentication() throws Exception {
-        mockMvc.perform(get("/actuator/prometheus"))
-                .andExpect(status().isUnauthorized());
-    }
-
     @Test
     void environmentEndpointShouldNotBeExposedAtAll() throws Exception {
         // `env` révélait toute la configuration résolue : il est retiré de l'exposition.
-        mockMvc.perform(get("/actuator/env").with(jwt()))
+        mockMvc.perform(get("/actuator/env"))
                 .andExpect(status().isNotFound());
     }
 }

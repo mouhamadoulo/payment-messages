@@ -83,21 +83,10 @@ ibm:
 
 
 app:
-  # L'API est fermée : tout /api/v1/** exige un jeton, sauf POST /api/v1/auth/login.
-  security:
-    jwt:
-      # HS256 : 32 octets minimum, refusé au démarrage sinon. Jamais de valeur par défaut,
-      # un secret de signature ne doit pas pouvoir être deviné depuis le dépôt.
-      secret: ${JWT_SECRET}
-      expiration: ${JWT_EXPIRATION:1h}
-      issuer: ${JWT_ISSUER:payment-messages}
-    # Swagger UI ouvert en développement ; à fermer en production, le contrat renseigne
-    # un attaquant sur toute la surface de l'API.
-    public-docs: ${SECURITY_PUBLIC_DOCS:true}
-    allowed-origins: ${SECURITY_ALLOWED_ORIGINS:http://localhost:4200}
-    # Les comptes (app.security.users[*].username / password / roles) sont déclarés par le
-    # profil actif, cf. application-dev.example.yaml. Sans compte, aucune authentification
-    # n'est possible : c'est volontaire, le fichier commun ne porte aucun identifiant.
+  # Origines admises en CORS. En dev comme en conteneur le front passe par un proxy de même
+  # origine ; la liste ne sert qu'aux appels directs au port de l'API.
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
 
   # Cache HTTP des lectures. À garder aligné sur STATS_CACHE_TTL (cache serveur) : au-delà,
   # le client conserverait un agrégat que le serveur a déjà recalculé.
@@ -139,7 +128,11 @@ management:
         include: health,info,metrics,prometheus
   endpoint:
     health:
-      show-details: when-authorized
+      # `never` et non `when-authorized` : sans chaîne d'authentification, cette dernière
+      # valeur ne masque plus rien de façon lisible. Le détail énumère les composants et
+      # leur état, donc la topologie interne — il n'a rien à faire sur une API ouverte.
+      # Le profil `dev` le rouvre localement.
+      show-details: never
       # Sondes distinctes : un socket ouvert ne signifie pas que l'application est prête.
       # `readiness` conditionne l'envoi de trafic (healthcheck Compose, readinessProbe
       # Kubernetes) ; `liveness` ne doit provoquer un redémarrage que si le contexte est
@@ -155,10 +148,9 @@ management:
         # l'ingestion mais l'API continue de servir les lectures et les rejeux.
         readiness:
           include: readinessState,db
-  # Par défaut les endpoints restent sur le port de l'API, où la chaîne de sécurité les
-  # filtre (health/info publics, metrics/prometheus authentifiés). MANAGEMENT_PORT les
-  # déplace sur un port dédié : ils quittent alors le contexte applicatif, donc la chaîne
-  # de sécurité — ce port ne doit dans ce cas jamais être exposé publiquement.
+  # Par défaut les endpoints restent sur le port de l'API. MANAGEMENT_PORT les déplace sur
+  # un port dédié, ce qui permet de n'exposer que l'API à l'extérieur et de réserver
+  # l'exploitation (metrics, prometheus) au réseau interne.
   server:
     port: ${MANAGEMENT_PORT:}
 

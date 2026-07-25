@@ -22,6 +22,20 @@ import { messagePayloadSize } from '../../../../shared/util/payload.util';
         (filterChange)="onFilter($event)"
         (exportCsv)="exportCsv()" />
 
+      <!--
+        Le service note l'échec du chargement mais la liste n'en montrait rien : les lignes
+        précédentes restaient affichées, et un clic sur une pastille semblait n'avoir aucun
+        effet. Le bandeau reste au-dessus du tableau — perdre les lignes déjà chargées sur
+        un simple rafraîchissement de fond raté serait pire que l'avertir.
+      -->
+      @if (svc.error()) {
+        <div class="alert" role="alert">
+          <span>Le chargement des messages a échoué : les lignes affichées ne correspondent
+                pas forcément aux filtres sélectionnés.</span>
+          <button class="retry" (click)="reload()">Réessayer</button>
+        </div>
+      }
+
       @if (svc.loading()) {
         <div class="card sk-table" aria-label="Chargement des messages" role="status">
           <div class="sk-row sk-head">
@@ -68,6 +82,15 @@ import { messagePayloadSize } from '../../../../shared/util/payload.util';
              background: var(--surface); border: 1px solid var(--border);
              border-radius: var(--radius-card); padding: var(--space-6); }
 
+    .alert { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+             background: var(--danger-soft); border: 1px solid var(--danger-border);
+             border-radius: var(--radius-card); padding: 12px 16px;
+             font-size: .82rem; color: var(--danger); }
+    .retry { margin-left: auto; padding: 7px 14px; border: 1px solid var(--danger);
+             border-radius: var(--radius-ctl); background: var(--surface); color: var(--danger);
+             font-size: .78rem; font-weight: 600; cursor: pointer; }
+    .retry:hover { background: var(--danger); color: #fff; }
+
     .sk-table { background: var(--surface); border: 1px solid var(--border);
                 border-radius: var(--radius-card); padding: 0; overflow: hidden; }
     .sk-row { display: grid; grid-template-columns: 1.4fr 1.6fr 1fr .9fr .7fr .7fr 1fr .7fr;
@@ -98,6 +121,8 @@ export class MessageListPage implements OnInit, AfterViewInit {
   private filters: MessageFilters = {};
   private pageIndex = 0;
   private pageSize = 20;
+  /** la première émission des query params doit charger, même sans statut demandé */
+  private started = false;
 
   /** compteurs par statut, calculés par le serveur sous les autres filtres actifs */
   protected readonly counts = computed(() => (this.svc.stats() as Record<string, number>) ?? {});
@@ -108,10 +133,17 @@ export class MessageListPage implements OnInit, AfterViewInit {
     // s'aligne sur celui du bandeau plutôt que de dépendre de ce détail. Hors contexte
     // d'injection (ngOnInit), le `DestroyRef` doit être fourni.
     this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
-      const status = q.get('status') as PaymentMessageStatus | null;
-      this.filters = status ? { status } : {};
+      const status = (q.get('status') as PaymentMessageStatus | null) ?? undefined;
+      // Un clic sur une pastille écrit lui-même le paramètre dans l'URL : sans ce garde,
+      // la navigation qui en découle rejouerait la requête et — surtout — écraserait le
+      // type, la date et la recherche que la barre venait d'émettre.
+      if (this.started && status === this.filters.status) {
+        return;
+      }
+      this.started = true;
+      this.filters = { ...this.filters, status };
       this.pageIndex = 0;
-      this.filterCmp()?.setStatus(status ?? undefined);
+      this.filterCmp()?.setStatus(status);
       this.load();
     });
     this.svc.loadMessageTypes();
@@ -132,9 +164,26 @@ export class MessageListPage implements OnInit, AfterViewInit {
     this.svc.loadStats(this.filters);
   }
 
+  /**
+   * Le statut sélectionné est reporté dans l'URL : un rechargement, un favori ou un retour
+   * arrière retrouvent la liste filtrée au lieu de repartir sur la table entière. Les trois
+   * autres critères restent en mémoire de page — ils n'ont pas vocation à être partagés et
+   * les mettre dans l'URL exposerait la recherche libre.
+   */
   protected onFilter(filters: MessageFilters) {
     this.filters = filters;
     this.pageIndex = 0;
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { status: filters.status ?? null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+    this.load();
+  }
+
+  /** Nouvelle tentative après un échec de chargement, avec les mêmes critères. */
+  protected reload() {
     this.load();
   }
 

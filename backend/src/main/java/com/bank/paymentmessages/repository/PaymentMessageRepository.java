@@ -21,12 +21,19 @@ public interface PaymentMessageRepository  extends JpaRepository<PaymentMessage,
      * combinaisons de filtres, là où des méthodes dérivées en auraient demandé seize.
      * Le groupe de recherche texte est parenthésé — {@code AND} lie plus fort que
      * {@code OR}, sans quoi un fragment recherché annulerait les autres filtres.
+     * <p>
+     * Le {@code cast} des paramètres testés contre {@code NULL} n'est pas cosmétique :
+     * cette occurrence-là n'est comparée à aucune colonne, PostgreSQL n'a donc rien pour
+     * en déduire le type et refuse la requête (« could not determine data type of
+     * parameter »). Le cast lui donne ce type. H2 s'en passe : la panne ne se voyait pas
+     * en campagne unitaire, seulement en base réelle — cf.
+     * {@code PaymentMessagePersistenceIT#everyFilterCombinationShouldBeAcceptedByPostgres}.
      */
     String FILTERS = """
-            WHERE (:status IS NULL OR p.status = :status)
-              AND (:receivedAfter IS NULL OR p.receivedAt > :receivedAfter)
-              AND (:type IS NULL OR p.messageType = :type)
-              AND (:text IS NULL
+            WHERE (cast(:status as String) IS NULL OR p.status = :status)
+              AND (cast(:receivedAfter as OffsetDateTime) IS NULL OR p.receivedAt > :receivedAfter)
+              AND (cast(:type as String) IS NULL OR p.messageType = :type)
+              AND (cast(:text as String) IS NULL
                    OR lower(p.reference) LIKE :text
                    OR lower(p.messageId) LIKE :text
                    OR lower(p.messageType) LIKE :text)
@@ -74,7 +81,7 @@ public interface PaymentMessageRepository  extends JpaRepository<PaymentMessage,
      * l'index {@code idx_pm_status_received_at} de servir la requête.
      */
     @Query(SELECT_SUMMARY + FILTERS + """
-              AND (:cursorReceivedAt IS NULL
+              AND (cast(:cursorReceivedAt as OffsetDateTime) IS NULL
                    OR p.receivedAt < :cursorReceivedAt
                    OR (p.receivedAt = :cursorReceivedAt AND p.id < :cursorId))
             ORDER BY p.receivedAt DESC, p.id DESC
@@ -126,9 +133,9 @@ public interface PaymentMessageRepository  extends JpaRepository<PaymentMessage,
      */
     @Query("""
             SELECT p.status, COUNT(p) FROM PaymentMessage p
-            WHERE (:receivedAfter IS NULL OR p.receivedAt > :receivedAfter)
-              AND (:type IS NULL OR p.messageType = :type)
-              AND (:text IS NULL
+            WHERE (cast(:receivedAfter as OffsetDateTime) IS NULL OR p.receivedAt > :receivedAfter)
+              AND (cast(:type as String) IS NULL OR p.messageType = :type)
+              AND (cast(:text as String) IS NULL
                    OR lower(p.reference) LIKE :text
                    OR lower(p.messageId) LIKE :text
                    OR lower(p.messageType) LIKE :text)

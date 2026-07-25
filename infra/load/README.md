@@ -36,14 +36,14 @@ seul qui compte — se lit ailleurs, pendant et après le tir :
 
 ```bash
 # Messages effectivement persistés, doublons, rejets, rollbacks
-curl -s localhost:8080/actuator/prometheus -H "Authorization: Bearer $TOKEN" \
+curl -s localhost:8080/actuator/prometheus \
   | grep -E 'payment_mq_messages|payment_mq_listener_rollbacks|payment_mq_processing_seconds'
 
 # Profondeur de file : si elle croît, la consommation ne suit pas
 docker exec payment-mq bash -c "echo 'DISPLAY QLOCAL(PAYMENT.REQUEST.QUEUE) CURDEPTH' | runmqsc QM1"
 
 # Occupation du pool JDBC : saturé, il devient le facteur limitant
-curl -s localhost:8080/actuator/metrics/hikaricp.connections.usage -H "Authorization: Bearer $TOKEN"
+curl -s localhost:8080/actuator/metrics/hikaricp.connections.usage
 ```
 
 ## API REST
@@ -53,7 +53,7 @@ k6 run infra/load/k6-api.js
 k6 run -e BASE_URL=http://localhost:8080 -e VUS=100 -e DURATION=5m infra/load/k6-api.js
 ```
 
-Variables : `BASE_URL`, `USERNAME`, `PASSWORD`, `VUS`, `DURATION`, `RAMP`.
+Variables : `BASE_URL`, `VUS`, `DURATION`, `RAMP`.
 
 Les seuils font **échouer** le tir (code de sortie non nul) :
 

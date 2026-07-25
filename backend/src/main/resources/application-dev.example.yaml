@@ -35,23 +35,8 @@ ibm:
 
 
 app:
-  security:
-    jwt:
-      # Valeur de développement uniquement (32 octets minimum, HS256).
-      # En production : secret tiré au hasard, fourni par l'environnement (JWT_SECRET).
-      secret: dev-only-secret-change-me-32-bytes-min
-      expiration: 1h
-    public-docs: true
+  cors:
     allowed-origins: http://localhost:4200
-    # Comptes de développement. Le préfixe {noop} indique un mot de passe en clair ;
-    # utiliser {bcrypt}$2a$… hors développement.
-    users:
-      - username: admin
-        password: "{noop}admin"
-        roles: [ADMIN, USER]
-      - username: operator
-        password: "{noop}operator"
-        roles: [USER]
 
 server:
   port: 8080
@@ -63,9 +48,11 @@ management:
         include: health,info,metrics,prometheus
   endpoint:
     health:
-      show-details: when-authorized
-  # Décommenter pour isoler les endpoints d'exploitation sur un port dédié. Ils sortent
-  # alors de la chaîne de sécurité applicative : ce port ne doit pas être exposé.
+      # Développement uniquement : le détail des composants aide au diagnostic local.
+      # Le fichier commun le referme (`never`) — ne pas reporter cette valeur en production.
+      show-details: always
+  # Décommenter pour isoler les endpoints d'exploitation sur un port dédié, à ne pas
+  # exposer à l'extérieur.
   # server:
   #   port: 8081
 

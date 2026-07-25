@@ -9,8 +9,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ProblemDetail;
 import org.springframework.http.ResponseEntity;
-import org.springframework.security.access.AccessDeniedException;
-import org.springframework.security.core.AuthenticationException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -76,20 +74,6 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleConcurrentUpdate(OptimisticLockingFailureException ex) {
         return problem(HttpStatus.CONFLICT, "concurrent-update", "Modification concurrente",
                 "Le message a été modifié par une autre opération, rechargez-le");
-    }
-
-    /** Identifiants refusés sur {@code /auth/login}. Le motif exact n'est jamais détaillé. */
-    @ExceptionHandler(AuthenticationException.class)
-    public ProblemDetail handleAuthenticationFailure(AuthenticationException ex) {
-        log.warn("Authentification refusée : {}", ex.getMessage());
-        return problem(HttpStatus.UNAUTHORIZED, "unauthorized", "Authentification refusée",
-                "Identifiants invalides");
-    }
-
-    @ExceptionHandler(AccessDeniedException.class)
-    public ProblemDetail handleAccessDenied(AccessDeniedException ex) {
-        return problem(HttpStatus.FORBIDDEN, "forbidden", "Accès refusé",
-                "Cette opération requiert un rôle supplémentaire");
     }
 
     @ExceptionHandler(Exception.class)

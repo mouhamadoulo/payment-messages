@@ -47,7 +47,7 @@ const SEARCH_DEBOUNCE_MS = 250;
       <div class="chips">
         <button class="chip" [class.active]="!status()"
                 [style.--c]="'var(--primary)'" [style.--cbg]="'var(--primary-soft)'"
-                (click)="pick(undefined)">ALL <span>{{ total() }}</span></button>
+                (click)="pick(undefined)">Tous <span>{{ total() }}</span></button>
         @for (s of statuses; track s.status) {
           <button class="chip" [class.active]="status() === s.status"
                   [style.--c]="s.color" [style.--cbg]="s.bg" (click)="pick(s.status)">

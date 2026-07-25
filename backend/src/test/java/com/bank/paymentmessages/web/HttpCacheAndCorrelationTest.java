@@ -9,7 +9,6 @@ import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -29,7 +28,7 @@ class HttpCacheAndCorrelationTest {
     /** Deuxième appel identique : le corps n'est pas retransmis (A8). */
     @Test
     void unchangedStatsShouldAnswer304OnSecondCall() throws Exception {
-        MvcResult first = mockMvc.perform(get("/api/v1/messages/stats").with(jwt()))
+        MvcResult first = mockMvc.perform(get("/api/v1/messages/stats"))
                 .andExpect(status().isOk())
                 .andExpect(header().exists("ETag"))
                 .andReturn();
@@ -37,7 +36,6 @@ class HttpCacheAndCorrelationTest {
         String etag = first.getResponse().getHeader("ETag");
 
         MvcResult second = mockMvc.perform(get("/api/v1/messages/stats")
-                        .with(jwt())
                         .header("If-None-Match", etag))
                 .andExpect(status().isNotModified())
                 .andReturn();
@@ -47,7 +45,7 @@ class HttpCacheAndCorrelationTest {
 
     @Test
     void responseShouldCarryTheProvidedCorrelationId() throws Exception {
-        mockMvc.perform(get("/api/v1/messages/stats").with(jwt())
+        mockMvc.perform(get("/api/v1/messages/stats")
                         .header("X-Request-Id", "trace-42"))
                 .andExpect(status().isOk())
                 .andExpect(header().string("X-Request-Id", "trace-42"));
@@ -56,7 +54,7 @@ class HttpCacheAndCorrelationTest {
     /** Sans en-tête fourni, un identifiant est généré : toute requête reste corrélable. */
     @Test
     void responseShouldCarryAGeneratedCorrelationIdOtherwise() throws Exception {
-        MvcResult result = mockMvc.perform(get("/api/v1/messages/stats").with(jwt()))
+        MvcResult result = mockMvc.perform(get("/api/v1/messages/stats"))
                 .andExpect(status().isOk())
                 .andReturn();
 

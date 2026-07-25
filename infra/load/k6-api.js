@@ -13,8 +13,6 @@ import { check, group } from 'k6';
 import { Trend } from 'k6/metrics';
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
-const USERNAME = __ENV.USERNAME || 'admin';
-const PASSWORD = __ENV.PASSWORD || 'admin';
 const API = `${BASE_URL}/api/v1`;
 
 // Latences suivies séparément : agrégées, la lecture d'un message masquerait le coût
@@ -46,26 +44,9 @@ export const options = {
   },
 };
 
-export function setup() {
-  const response = http.post(
-    `${API}/auth/login`,
-    JSON.stringify({ username: USERNAME, password: PASSWORD }),
-    { headers: { 'Content-Type': 'application/json' } },
-  );
-
-  check(response, { 'authentification acceptée': (r) => r.status === 200 });
-
-  if (response.status !== 200) {
-    throw new Error(`Authentification refusée (${response.status}) : ${response.body}`);
-  }
-
-  return { token: response.json('token') };
-}
-
-export default function (data) {
+export default function () {
   const params = {
     headers: {
-      Authorization: `Bearer ${data.token}`,
       Accept: 'application/json',
     },
   };

@@ -14,6 +14,7 @@ import com.bank.paymentmessages.support.RequiresDocker;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Pageable;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 
 import java.math.BigDecimal;
@@ -163,6 +164,47 @@ class PaymentMessagePersistenceIT extends AbstractPostgresIT {
         } while (cursor != null);
 
         assertThat(visited).hasSize(7).doesNotHaveDuplicates();
+    }
+
+    /**
+     * Prédicat de liste avec des filtres partiellement absents.
+     * <p>
+     * PostgreSQL refuse un paramètre dont il ne peut pas déduire le type : dans
+     * {@code (:type IS NULL OR p.messageType = :type)}, l'occurrence testée contre
+     * {@code NULL} n'est comparée à aucune colonne et le pilote la lie sans type
+     * (« could not determine data type of parameter »). H2 l'accepte, la campagne
+     * unitaire ne pouvait donc pas voir la panne : toute la barre de filtres répondait
+     * 500 en dev alors que {@code ./mvnw test} restait vert.
+     */
+    @Test
+    void everyFilterCombinationShouldBeAcceptedByPostgres() {
+
+        OffsetDateTime now = OffsetDateTime.now().truncatedTo(ChronoUnit.MILLIS);
+        repository.save(row("msg-filter-failed", PaymentMessageStatus.FAILED, now));
+        repository.save(row("msg-filter-received", PaymentMessageStatus.RECEIVED, now));
+
+        assertThat(service.search(MessageQuery.of(PaymentMessageStatus.FAILED, null, null, null),
+                Pageable.ofSize(10)).getContent())
+                .extracting(PaymentMessageSummaryDto::getMessageId)
+                .containsExactly("msg-filter-failed");
+
+        assertThat(service.search(MessageQuery.of(null, now.minusDays(1), null, null),
+                Pageable.ofSize(10)).getTotalElements()).isEqualTo(2);
+        assertThat(service.search(MessageQuery.of(null, null, "pacs.008", null),
+                Pageable.ofSize(10)).getTotalElements()).isEqualTo(2);
+        assertThat(service.search(MessageQuery.of(null, null, null, "FILTER-FAILED"),
+                Pageable.ofSize(10)).getTotalElements()).isEqualTo(1);
+
+        // Tous les critères ensemble, puis les compteurs et le curseur, qui partagent le
+        // même prédicat.
+        MessageQuery all = MessageQuery.of(PaymentMessageStatus.FAILED, now.minusDays(1), "pacs.008", "filter");
+        assertThat(service.search(all, Pageable.ofSize(10)).getTotalElements()).isEqualTo(1);
+        assertThat(service.getStats(MessageQuery.of(null, null, "pacs.008", null)))
+                .containsEntry(PaymentMessageStatus.FAILED, 1L);
+        assertThat(service.searchByCursor(
+                MessageQuery.of(PaymentMessageStatus.RECEIVED, null, null, null), null, 10).content())
+                .extracting(PaymentMessageSummaryDto::getMessageId)
+                .containsExactly("msg-filter-received");
     }
 
     /**

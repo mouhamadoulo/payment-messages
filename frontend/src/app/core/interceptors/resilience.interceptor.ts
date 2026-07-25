@@ -14,8 +14,8 @@ export const RETRY_ATTEMPTS = 2;
 const RETRY_BASE_DELAY_MS = 300;
 
 /**
- * Résilience réseau, appliquée en bout de chaîne (donc sur la requête définitive, jeton
- * compris).
+ * Résilience réseau, appliquée en bout de chaîne, donc sur la requête définitive (URL
+ * préfixée comprise).
  *
  * - **Délai maximal** sur toutes les méthodes : sans lui, une requête peut rester en vol
  *   indéfiniment et laisser la vue sur son squelette de chargement.

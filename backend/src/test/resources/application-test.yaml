@@ -35,17 +35,6 @@ ibm:
       enabled: false
 
 app:
-  security:
-    jwt:
-      secret: test-only-secret-0123456789-abcdefghij
-      expiration: 15m
-    users:
-      - username: admin
-        password: "{noop}admin"
-        roles: [ADMIN, USER]
-      - username: operator
-        password: "{noop}operator"
-        roles: [USER]
   http-cache:
     stats-ttl: 15s
 

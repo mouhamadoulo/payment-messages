@@ -2,63 +2,18 @@
 
 Base URL : `http://localhost:8080`
 
-Swagger UI : `http://localhost:8080/swagger-ui.html` (bouton *Authorize* pour coller le jeton)
+Swagger UI : `http://localhost:8080/swagger-ui.html`
 
 ---
 
 ## Authentification
 
-Toute l'API est fermée : `/api/v1/**` exige un jeton, à la seule exception de
-`POST /api/v1/auth/login`. Le jeton est un JWT signé en HMAC-SHA256 par l'application
-elle-même (secret `app.security.jwt.secret`, 32 octets minimum) — il n'y a pas de serveur
-d'autorisation externe.
+**Hors périmètre du sujet.** L'API n'exige aucun jeton et ne connaît ni compte ni rôle :
+tous les endpoints, y compris `/actuator/**` et Swagger UI, sont accessibles sans
+identification. Le service doit donc rester déployé sur un réseau de confiance.
 
-Les comptes sont déclarés en configuration (`app.security.users[*]`), avec un mot de passe
-préfixé par son algorithme (`{bcrypt}…`, `{noop}…` en développement).
-
-### POST /api/v1/auth/login
-
-**Requête**
-
-```json
-{ "username": "admin", "password": "admin" }
-```
-
-**Réponse** `200 OK`
-
-```json
-{
-  "token": "eyJhbGciOiJIUzI1NiJ9...",
-  "tokenType": "Bearer",
-  "expiresIn": 3600,
-  "username": "admin",
-  "roles": ["ADMIN", "USER"]
-}
-```
-
-**Erreurs** : `400` requête incomplète · `401` identifiants invalides (le motif exact n'est
-jamais détaillé).
-
-Tous les autres appels portent ensuite :
-
-```
-Authorization: Bearer <token>
-```
-
-### Droits
-
-| Rôle | Autorisé |
-|---|---|
-| `USER` | lecture (`GET`), rejeu unitaire (`POST /{id}/retry`) |
-| `ADMIN` | tout, dont `DELETE /{id}`, `PUT /{id}/status`, `POST /batch/retry-failed` |
-
-Un appel sans jeton répond `401`, un rôle insuffisant `403`.
-
-### Endpoints publics
-
-`POST /api/v1/auth/login`, `/actuator/health`, `/actuator/info`, et — tant que
-`app.security.public-docs` vaut `true` — Swagger UI et `/v3/api-docs`. Le reste, y compris
-`/actuator/metrics` et `/actuator/prometheus`, exige un jeton.
+La seule politique navigateur restante est le CORS (`app.cors.allowed-origins`), qui borne
+les origines admises sur `/api/**`.
 
 ---
 
@@ -277,7 +232,7 @@ Détail d'un message par son ID technique.
 
 ### DELETE /api/v1/messages/{id}
 
-Supprime un message par son ID. **Réservé au rôle `ADMIN`.**
+Supprime un message par son ID.
 
 **Paramètres**
 
@@ -287,13 +242,13 @@ Supprime un message par son ID. **Réservé au rôle `ADMIN`.**
 
 **Réponse** `204 No Content`
 
-**Erreurs** : `403 Forbidden` (rôle `ADMIN` requis) · `404 Not Found`
+**Erreurs** : `404 Not Found`
 
 ---
 
 ### POST /api/v1/messages/batch/retry-failed
 
-**Réservé au rôle `ADMIN`.** Rejoue tous les messages en statut `FAILED` : `retryCount` est incrémenté et chaque message repasse en
+Rejoue tous les messages en statut `FAILED` : `retryCount` est incrémenté et chaque message repasse en
 `RECEIVED`. Au-delà de `ibm.mq.max-retries` tentatives, le message part en `DEAD_LETTER` et son payload
 est republié sur la Dead Letter Queue.
 
@@ -377,7 +332,7 @@ sur la Dead Letter Queue. Seuls les messages `FAILED` sont rejouables.
 
 ### PUT /api/v1/messages/{id}/status
 
-Met à jour le statut d'un message. **Réservé au rôle `ADMIN`.**
+Met à jour le statut d'un message.
 
 La transition doit être autorisée par la machine à états (cf. `PaymentMessageStatus`) :
 
@@ -422,7 +377,6 @@ version consommée).
 | Code | Cas |
 |---|---|
 | `400 Bad Request` | Corps invalide (statut absent, valeur d'enum inconnue, motif trop long) |
-| `403 Forbidden` | Rôle `ADMIN` requis |
 | `404 Not Found` | Message inexistant |
 | `409 Conflict` | Verrou optimiste perdu : le message a été modifié par une autre opération, le recharger avant de rejouer l'action |
 | `422 Unprocessable Entity` | Transition interdite par la machine à états. La réponse porte `from`, `to` et `allowedTransitions` |
@@ -501,8 +455,6 @@ trace serveur d'un incident.
 | `type` | Statut | Champs supplémentaires |
 |---|---|---|
 | `urn:payment-messages:validation-failed` | 400 | `errors` : `{ champ: message }` |
-| `urn:payment-messages:unauthorized` | 401 | — |
-| `urn:payment-messages:forbidden` | 403 | — |
 | `urn:payment-messages:not-found` | 404 | — |
 | `urn:payment-messages:concurrent-update` | 409 | — |
 | `urn:payment-messages:invalid-status-transition` | 422 | `from`, `to`, `allowedTransitions` |

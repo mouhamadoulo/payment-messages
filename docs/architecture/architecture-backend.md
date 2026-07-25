@@ -29,8 +29,6 @@ Le backend est une application **Spring Boot 4.1.0** en **Java 21**. Il assure :
 | Spring Boot Actuator | - | Métriques et santé |
 | Flyway | - | Migrations de schéma (`db/migration`) |
 | Caffeine | - | Cache court des statistiques |
-| Spring Security | - | API fermée, jetons JWT (HMAC-SHA256) |
-| OAuth2 Resource Server | - | Vérification des jetons portés par `Authorization: Bearer` |
 | Micrometer + Prometheus | - | Métriques métier (`/actuator/prometheus`) |
 | Micrometer Tracing (OTel) | - | `traceId`/`spanId` dans les logs |
 
@@ -46,23 +44,20 @@ com.bank.paymentmessages
 │   ├── JmsConfig.java                  # Factory de listeners + ErrorHandler
 │   ├── CacheConfig.java                # @EnableCaching (messageStats, dashboardStats, messageTypes)
 │   ├── BatchRetryExecutorConfig.java   # Exécuteur dédié au rejeu massif
-│   ├── SecurityConfig.java             # Chaîne de filtres, JWT, rôles, CORS
-│   ├── SecurityProperties.java         # app.security.* (secret, comptes, origines)
+│   ├── CorsConfig.java                 # Politique CORS sur /api/**
+│   ├── CorsProperties.java             # app.cors.allowed-origins
 │   ├── MetricsConfig.java              # Jauges métier (pending, failed, dead letter)
 │   ├── HttpCacheConfig.java            # Filtre ETag sur les lectures de messages
-│   └── OpenApiConfig.java              # Schéma de sécurité exposé à Swagger UI
+│   └── OpenApiConfig.java              # Métadonnées du contrat OpenAPI
 ├── controller/
 │   ├── PaymentMessageController.java   # Endpoints REST
-│   ├── AuthController.java             # POST /auth/login (émission du jeton)
 │   └── ConfigController.java           # Configuration MQ non sensible pour l'IHM
 ├── dto/
 │   ├── api/
 │   │   ├── PaymentMessageDto.java          # DTO de détail (payload inclus)
 │   │   ├── PaymentMessageSummaryDto.java   # DTO de liste (sans payload)
 │   │   ├── CursorPageDto.java              # Page paginée par curseur
-│   │   ├── UpdateStatusRequest.java        # Corps de PUT /{id}/status ({status, reason})
-│   │   ├── LoginRequest.java               # Identifiants de connexion
-│   │   └── LoginResponse.java              # Jeton émis + rôles
+│   │   └── UpdateStatusRequest.java        # Corps de PUT /{id}/status ({status, reason})
 │   └── mq/
 │       ├── PaymentMessageEvent.java    # DTO entrant (MQ)
 │       ├── Payment.java                # Détails du paiement
@@ -91,7 +86,6 @@ com.bank.paymentmessages
 │   ├── BatchRetryService.java          # Rejeu massif par lots, en tâche de fond
 │   ├── BatchRetryTask.java             # État d'un rejeu massif
 │   ├── Cursor.java                     # Curseur de pagination keyset
-│   ├── TokenService.java               # Émission des jetons JWT
 │   └── MessageRetentionJob.java        # Purge planifiée des PROCESSED
 └── web/
     └── CorrelationIdFilter.java        # X-Request-Id + MDC sur chaque requête
@@ -239,8 +233,6 @@ lieu d'être dégradées en 500 par un fourre-tout.
 | `PaymentMessageNotFoundException` | `404 NOT FOUND` |
 | `IllegalArgumentException` | `400 BAD REQUEST` |
 | `MethodArgumentNotValidException` | `400 BAD REQUEST` + `errors` par champ |
-| `AuthenticationException` | `401 UNAUTHORIZED` (motif jamais détaillé) |
-| `AccessDeniedException` | `403 FORBIDDEN` |
 | `OptimisticLockingFailureException` | `409 CONFLICT` (modification concurrente) |
 | `InvalidStatusTransitionException` | `422 UNPROCESSABLE ENTITY` + `from`/`to`/`allowedTransitions` |
 | `Exception` (catch-all) | `500 INTERNAL SERVER ERROR`, message générique + `correlationId` |
@@ -259,24 +251,17 @@ Format `application/problem+json` (RFC 9457) :
 }
 ```
 
-Les refus produits par la chaîne de filtres (401/403) n'atteignent pas ce handler : ils sont
-formatés à l'identique par `SecurityConfig`.
+### 5.7 CORS (`CorsConfig`)
 
-### 5.7 Sécurité (`SecurityConfig`)
+**L'authentification et les autorisations sont hors périmètre du sujet** : aucun jeton,
+aucun compte, aucun rôle. Tous les endpoints — API, Swagger UI, actuator — répondent sans
+identification, ce qui suppose un déploiement sur réseau de confiance.
 
-L'API est fermée : `/api/v1/**` exige un jeton, sauf `POST /api/v1/auth/login`. Le service
-signe et vérifie lui-même ses jetons (HMAC-SHA256, secret `app.security.jwt.secret`) ; passer
-à un fournisseur OAuth2 externe consisterait à remplacer le `JwtDecoder` par
-`NimbusJwtDecoder.withJwkSetUri(...)` et à retirer l'émission.
-
-- session **sans état**, donc sans cookie ni CSRF ;
-- rôles portés par la revendication `roles`, préfixés `ROLE_` à la vérification ;
-- `DELETE /{id}`, `PUT /{id}/status` et `POST /batch/retry-failed` exigent `ADMIN`, le reste
-  un simple compte authentifié ;
-- publics : `/actuator/health`, `/actuator/info`, et Swagger UI tant que
-  `app.security.public-docs` vaut `true` ;
-- comptes déclarés en configuration (`app.security.users[*]`), mot de passe préfixé par son
-  algorithme (`{bcrypt}`, `{noop}`) via un `DelegatingPasswordEncoder`.
+Reste la politique navigateur : un `CorsFilter` borne `/api/**` aux origines de
+`app.cors.allowed-origins`, aux méthodes `GET/POST/PUT/DELETE/OPTIONS` et aux en-têtes
+`Content-Type`/`X-Request-Id`. La source de configuration n'est volontairement pas exposée
+en bean — le `HandlerMappingIntrospector` de Spring MVC implémente la même interface et
+rendrait l'injection ambiguë.
 
 ### 5.8 Observabilité (`MetricsConfig`, `CorrelationIdFilter`)
 
@@ -322,7 +307,6 @@ collecteur.
 | `MQ_DLQ_QUEUE` | Dead Letter Queue applicative |
 | `MQ_MAX_RETRIES` | Nombre de rejeux avant `DEAD_LETTER` |
 | `SERVER_PORT` | Port du serveur |
-| `JWT_SECRET` | Secret de signature des jetons, **32 octets minimum** (refus au démarrage sinon) |
 
 Variables optionnelles :
 
@@ -341,27 +325,25 @@ Variables optionnelles :
 | `RETENTION_PROCESSED_DAYS` | `90` | Âge au-delà duquel un `PROCESSED` est purgeable |
 | `RETENTION_BATCH_SIZE` / `RETENTION_MAX_PER_RUN` | `500` / `50000` | Bornes de la purge |
 | `RETENTION_CRON` | `0 30 3 * * *` | Déclenchement de la purge |
-| `JWT_EXPIRATION` | `1h` | Durée de validité d'un jeton |
-| `JWT_ISSUER` | `payment-messages` | Émetteur inscrit dans le jeton |
-| `SECURITY_PUBLIC_DOCS` | `true` | Swagger UI et `/v3/api-docs` accessibles sans jeton |
-| `SECURITY_ALLOWED_ORIGINS` | `http://localhost:4200` | Origines CORS autorisées |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:4200` | Origines CORS autorisées sur `/api/**` |
 | `MAX_PAGE_SIZE` | `200` | Borne haute de pagination |
 | `REQUEST_TIMEOUT` | `15s` | Délai maximal d'une requête asynchrone |
 | `CONNECTION_TIMEOUT` | `5s` | Délai d'établissement de connexion Tomcat |
-| `MANAGEMENT_PORT` | *(vide)* | Déplace l'actuator sur un port dédié — il quitte alors la chaîne de sécurité applicative |
-
-Les comptes ne sont pas pilotés par une variable simple : ils se déclarent en YAML
-(`app.security.users[*].username/password/roles`) ou par variables indexées
-(`APP_SECURITY_USERS_0_USERNAME`, `…_PASSWORD`, `…_ROLES_0`), cf. `docker-compose.yaml`.
+| `MANAGEMENT_PORT` | *(vide)* | Déplace l'actuator sur un port dédié, à réserver au réseau interne |
 
 ### 6.3 Actuator
 
 Endpoints exposés : `health`, `info`, `metrics`, `prometheus`.
 
 `env` a été **retiré** : il révélait toute la configuration résolue, identifiants MQ et URL de
-base compris. Seuls `health` et `info` sont publics ; `metrics` et `prometheus` exigent un
-jeton. `MANAGEMENT_PORT` permet d'isoler ces endpoints sur un port dédié, qui sort alors de
-la chaîne de sécurité applicative et ne doit pas être exposé.
+base compris. Les endpoints restants répondent sans identification (l'authentification est
+hors périmètre) : `MANAGEMENT_PORT` permet de les isoler sur un port dédié, à ne pas exposer
+à l'extérieur.
+
+Le **détail** des sondes reste fermé (`management.endpoint.health.show-details: never`) :
+il énumère les composants et leur état, donc la topologie interne. Le statut agrégé suffit
+aux sondes de l'orchestrateur. Seul le profil `dev` rouvre le détail, pour le diagnostic
+local.
 
 ---
 
@@ -375,10 +357,9 @@ la chaîne de sécurité applicative et ne doit pas être exposé.
 - **ServiceTest** : logique métier (mocks), idempotence, curseur, lots bornés
 - **BatchRetryServiceTest** : enchaînement des lots, plafond, échec
 - **DeadLetterDispatcherTest** : publication après commit et confirmation `dlqPublishedAt`
-- **ControllerTest** : endpoints REST (MockMvc), autorisations par rôle, contrat de statut
-- **AuthControllerTest** : émission de jeton, refus d'identifiants
-- **SecurityConfigTest** : jeton réellement émis → accès accordé, rôles, jeton falsifié refusé
-- **MetricsConfigTest** : `/actuator/prometheus` exposé, authentifié, `env` absent
+- **ControllerTest** : endpoints REST (MockMvc), contrat de statut, garde-fous de pagination
+- **HealthProbesTest** : sondes `liveness`/`readiness` consommées par l'orchestrateur
+- **MetricsConfigTest** : `/actuator/prometheus` exposé, `env` absent
 - **HttpCacheAndCorrelationTest** : `ETag`/`304`, `X-Request-Id`
 - **PaymentMessageStatusTest** : machine à états (transitions, statuts terminaux)
 - **ListenerTest** : erreurs définitives / transitoires, chronomètre, purge du MDC

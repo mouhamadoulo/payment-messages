@@ -15,7 +15,6 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.security.SecurityRequirement;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Max;
@@ -41,7 +40,6 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/v1/messages")
 @Tag(name = "Messages", description = "Gestion des messages MQ")
-@SecurityRequirement(name = "bearerAuth")
 public class PaymentMessageController {
 
     /**
@@ -179,10 +177,9 @@ public class PaymentMessageController {
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Supprime un message", description = "Réservé au rôle ADMIN.")
+    @Operation(summary = "Supprime un message")
     @ApiResponses({
             @ApiResponse(responseCode = "204", description = "Message supprimé"),
-            @ApiResponse(responseCode = "403", description = "Rôle ADMIN requis"),
             @ApiResponse(responseCode = "404", description = "Message inexistant")
     })
     public void deleteById(@Parameter(description = "Identifiant du message") @PathVariable Long id) {
@@ -196,10 +193,9 @@ public class PaymentMessageController {
                     + "taskId à suivre via GET /batch/retry-failed/{taskId}. Chaque message voit son "
                     + "retryCount incrémenté et repasse en RECEIVED ; au-delà du seuil ibm.mq.max-retries, "
                     + "il part en DEAD_LETTER et son payload est republié sur la Dead Letter Queue. "
-                    + "Un seul rejeu massif peut être en cours à la fois. Réservé au rôle ADMIN.")
+                    + "Un seul rejeu massif peut être en cours à la fois.")
     @ApiResponses({
-            @ApiResponse(responseCode = "202", description = "Rejeu massif accepté"),
-            @ApiResponse(responseCode = "403", description = "Rôle ADMIN requis")
+            @ApiResponse(responseCode = "202", description = "Rejeu massif accepté")
     })
     public BatchRetryTask batchRetryFailed() {
         return batchRetryService.start();
@@ -236,11 +232,10 @@ public class PaymentMessageController {
             description = "La transition doit être autorisée par la machine à états : "
                     + "RECEIVED → PROCESSED | FAILED, FAILED → RECEIVED | PROCESSED | DEAD_LETTER. "
                     + "PROCESSED et DEAD_LETTER sont terminaux. Un statut identique à l'actuel est "
-                    + "accepté sans effet. Réservé au rôle ADMIN.")
+                    + "accepté sans effet.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Statut mis à jour"),
             @ApiResponse(responseCode = "400", description = "Corps de requête invalide"),
-            @ApiResponse(responseCode = "403", description = "Rôle ADMIN requis"),
             @ApiResponse(responseCode = "404", description = "Message inexistant"),
             @ApiResponse(responseCode = "409", description = "Message modifié entre-temps"),
             @ApiResponse(responseCode = "422", description = "Transition de statut interdite")

@@ -7,6 +7,5 @@ export const API_CONFIG = {
   /** types présents en base : le filtre par type s'applique à toute la table */
   messageTypes: '/messages/types',
   batchRetry: '/messages/batch/retry-failed',
-  config: '/config',
-  login: '/auth/login'
+  config: '/config'
 };

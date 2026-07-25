@@ -9,7 +9,6 @@ import com.bank.paymentmessages.exception.InvalidStatusTransitionException;
 import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
 import com.bank.paymentmessages.service.BatchRetryService;
 import com.bank.paymentmessages.service.BatchRetryTask;
-import com.bank.paymentmessages.config.SecurityConfig;
 import com.bank.paymentmessages.service.MessageQuery;
 import com.bank.paymentmessages.service.PaymentMessageService;
 import org.junit.jupiter.api.Test;
@@ -18,10 +17,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
-import org.springframework.context.annotation.Import;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.MediaType;
-import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -49,13 +46,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * {@code @WebMvcTest} n'embarque pas les {@code @Configuration} applicatives : sans import
- * explicite, c'est la sécurité par défaut de Boot qui s'appliquerait (CSRF actif, aucune
- * règle de rôle) et les tests d'autorisation ne vaudraient rien. Le profil {@code test}
- * fournit les propriétés {@code app.security.*} que cette configuration exige.
+ * Contrat HTTP du contrôleur. Le profil {@code test} fournit les propriétés que la
+ * configuration attend ({@code app.http-cache.stats-ttl} notamment).
  */
 @WebMvcTest(PaymentMessageController.class)
-@Import(SecurityConfig.class)
 @ActiveProfiles("test")
 class PaymentMessageControllerTest {
 
@@ -69,7 +63,6 @@ class PaymentMessageControllerTest {
     private BatchRetryService batchRetryService;
 
     @Test
-    @WithMockUser
     void findAllShouldReturnListWithoutPayload() throws Exception {
         Page<PaymentMessageSummaryDto> page = new PageImpl<>(List.of(
                 PaymentMessageSummaryDto.builder().id(1L).messageId("m1").payloadSize(120)
@@ -89,7 +82,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser
     void cursorEndpointShouldReturnNextCursor() throws Exception {
         when(service.searchByCursor(any(MessageQuery.class), isNull(), anyInt())).thenReturn(
                 new CursorPageDto<>(
@@ -104,7 +96,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void batchRetryShouldAcceptAndReturnTaskId() throws Exception {
         when(batchRetryService.start()).thenReturn(BatchRetryTask.running("task-1"));
 
@@ -115,7 +106,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser
     void batchRetryStatusShouldReturn404WhenTaskUnknown() throws Exception {
         when(batchRetryService.find("nope")).thenReturn(Optional.empty());
 
@@ -124,7 +114,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser
     void findByIdShouldReturnMessage() throws Exception {
         when(service.findById(1L)).thenReturn(
                 PaymentMessageDto.builder().id(1L).messageId("m1").reference("REF-001").status(PaymentMessageStatus.RECEIVED).build()
@@ -137,7 +126,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser
     void findByIdShouldReturn404WhenNotFound() throws Exception {
         when(service.findById(99L)).thenThrow(new PaymentMessageNotFoundException(99L));
 
@@ -148,48 +136,17 @@ class PaymentMessageControllerTest {
                 .andExpect(jsonPath("$.correlationId").exists());
     }
 
-    // ---------------------------------------------------------------- A1 : accès
-
     @Test
-    void listShouldBeRefusedWithoutToken() throws Exception {
-        mockMvc.perform(get("/api/v1/messages"))
-                .andExpect(status().isUnauthorized())
-                .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
-
-        verify(service, never()).search(any(MessageQuery.class), any(Pageable.class));
-    }
-
-    @Test
-    @WithMockUser
-    void deleteShouldBeRefusedWithoutAdminRole() throws Exception {
-        mockMvc.perform(delete("/api/v1/messages/{id}", 1L))
-                .andExpect(status().isForbidden());
-
-        verify(service, never()).deleteById(1L);
-    }
-
-    @Test
-    @WithMockUser(roles = "ADMIN")
-    void deleteShouldSucceedForAdmin() throws Exception {
+    void deleteShouldRemoveTheMessage() throws Exception {
         mockMvc.perform(delete("/api/v1/messages/{id}", 1L))
                 .andExpect(status().isNoContent());
 
         verify(service).deleteById(1L);
     }
 
-    @Test
-    @WithMockUser
-    void statusUpdateShouldBeRefusedWithoutAdminRole() throws Exception {
-        mockMvc.perform(put("/api/v1/messages/{id}/status", 1L)
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"status\":\"PROCESSED\"}"))
-                .andExpect(status().isForbidden());
-    }
-
     // ------------------------------------------------- A3 / A4 : contrat de statut
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void statusUpdateShouldAcceptStructuredBody() throws Exception {
         when(service.updateStatus(eq(1L), eq(PaymentMessageStatus.PROCESSED), eq("Vérifié manuellement")))
                 .thenReturn(PaymentMessageDto.builder().id(1L).messageId("m1")
@@ -203,7 +160,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void statusUpdateShouldRejectMissingStatus() throws Exception {
         mockMvc.perform(put("/api/v1/messages/{id}/status", 1L)
                         .contentType(MediaType.APPLICATION_JSON)
@@ -213,7 +169,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser(roles = "ADMIN")
     void statusUpdateShouldReturn422OnForbiddenTransition() throws Exception {
         when(service.updateStatus(eq(1L), eq(PaymentMessageStatus.DEAD_LETTER), isNull()))
                 .thenThrow(new InvalidStatusTransitionException(
@@ -230,7 +185,6 @@ class PaymentMessageControllerTest {
     // ------------------------------------------------ A7 / A8 : garde-fous et cache
 
     @Test
-    @WithMockUser
     void cursorSizeAboveLimitShouldBeRejected() throws Exception {
         mockMvc.perform(get("/api/v1/messages/cursor").param("size", "100000"))
                 .andExpect(status().isBadRequest());
@@ -241,7 +195,6 @@ class PaymentMessageControllerTest {
     // ------------------------------------- F1 / F2 / F3 : filtres et agrégats côté serveur
 
     @Test
-    @WithMockUser
     void listShouldForwardEveryFilterToTheService() throws Exception {
         when(service.search(any(MessageQuery.class), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
@@ -263,7 +216,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser
     void statsShouldForwardTheNonStatusFilters() throws Exception {
         when(service.getStats(any(MessageQuery.class))).thenReturn(Map.of(PaymentMessageStatus.FAILED, 2L));
         ArgumentCaptor<MessageQuery> query = ArgumentCaptor.forClass(MessageQuery.class);
@@ -278,7 +230,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser
     void dashboardShouldExposeAggregatesAndBeCacheable() throws Exception {
         OffsetDateTime from = OffsetDateTime.parse("2026-07-24T15:00:00+02:00");
         when(service.getDashboardStats()).thenReturn(new DashboardStatsDto(
@@ -301,7 +252,6 @@ class PaymentMessageControllerTest {
     }
 
     @Test
-    @WithMockUser
     void typesEndpointShouldNotBeShadowedByTheIdRoute() throws Exception {
         when(service.getMessageTypes()).thenReturn(List.of("pacs.002", "pacs.008"));
 
@@ -316,7 +266,6 @@ class PaymentMessageControllerTest {
     /** L'ETag, posé par un filtre enregistré via FilterRegistrationBean, est couvert par
      *  {@code HttpCacheAndCorrelationTest} : {@code @WebMvcTest} n'enregistre pas ces filtres. */
     @Test
-    @WithMockUser
     void statsShouldBeCacheable() throws Exception {
         when(service.getStats(any(MessageQuery.class))).thenReturn(Map.of(PaymentMessageStatus.RECEIVED, 3L));
 

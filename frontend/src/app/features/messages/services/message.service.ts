@@ -282,11 +282,9 @@ export class MessageService {
           this.notification.success('Rejeu massif démarré');
           this.pollBatchRetry(task.taskId);
         },
-        error: (err: { status?: number }) => {
+        error: () => {
           this.batchRetryRunning.set(false);
-          this.notification.error(err.status === 403
-            ? 'Rejeu massif réservé au rôle ADMIN'
-            : 'Erreur lors de la relance batch');
+          this.notification.error('Erreur lors de la relance batch');
         }
       });
   }
@@ -335,10 +333,6 @@ export class MessageService {
           this.notification.error(err.error?.detail ?? 'Changement de statut refusé');
           return;
         }
-        if (err.status === 403) {
-          this.notification.error('Opération réservée au rôle ADMIN');
-          return;
-        }
         this.notification.error('Erreur lors de la mise à jour du statut');
       }
     });
@@ -356,8 +350,7 @@ export class MessageService {
           this.afterWrite();
           if (redirect) this.router.navigate(['/messages']);
         },
-        error: (err: { status?: number }) => this.notification.error(
-          err.status === 403 ? 'Suppression réservée au rôle ADMIN' : 'Erreur lors de la suppression')
+        error: () => this.notification.error('Erreur lors de la suppression')
       });
   }
 

@@ -15,9 +15,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * Contrat des sondes consommées par l'orchestrateur.
  * <p>
  * Le healthcheck de {@code docker-compose.yaml} et, plus tard, la {@code readinessProbe}
- * Kubernetes appellent ces routes <b>sans jeton</b> : une régression sur leur exposition ou
- * sur leur ouverture rendrait le conteneur définitivement « unhealthy » sans qu'aucun test
- * fonctionnel ne bronche.
+ * Kubernetes appellent ces routes : une régression sur leur exposition rendrait le
+ * conteneur définitivement « unhealthy » sans qu'aucun test fonctionnel ne bronche.
  */
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -28,26 +27,28 @@ class HealthProbesTest {
     private MockMvc mockMvc;
 
     @Test
-    void readinessProbeShouldBePublic() throws Exception {
+    void readinessProbeShouldAnswerUp() throws Exception {
         mockMvc.perform(get("/actuator/health/readiness"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
     }
 
     @Test
-    void livenessProbeShouldBePublic() throws Exception {
+    void livenessProbeShouldAnswerUp() throws Exception {
         mockMvc.perform(get("/actuator/health/liveness"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.status").value("UP"));
     }
 
     /**
-     * Le détail reste réservé aux appelants authentifiés : il énumère les composants et
-     * leur état, donc la topologie interne.
+     * L'API n'ayant plus de chaîne d'authentification, le détail des sondes reste fermé
+     * ({@code show-details: never}) : il énumère les composants et leur état, donc la
+     * topologie interne. Seul le profil {@code dev} le rouvre.
      */
     @Test
-    void probeDetailsShouldStayHiddenFromAnonymousCallers() throws Exception {
+    void probeDetailsShouldStayHidden() throws Exception {
         mockMvc.perform(get("/actuator/health/readiness"))
+                .andExpect(status().isOk())
                 .andExpect(jsonPath("$.components").doesNotExist());
     }
 }
