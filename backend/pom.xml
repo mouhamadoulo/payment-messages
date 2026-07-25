@@ -55,6 +55,13 @@
 			<groupId>com.github.ben-manes.caffeine</groupId>
 			<artifactId>caffeine</artifactId>
 		</dependency>
+		<!-- Boot 4 a sorti l'auto-configuration Flyway de spring-boot-autoconfigure : sans ce
+		     module, `spring.flyway.*` ne se lie à rien et les migrations ne sont jamais jouées
+		     (Hibernate en `validate` échoue alors sur « missing table payment_messages »). -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-flyway</artifactId>
+		</dependency>
 		<dependency>
 			<groupId>org.flywaydb</groupId>
 			<artifactId>flyway-core</artifactId>
