@@ -1,6 +1,7 @@
 package com.bank.paymentmessages.controller;
 
 import com.bank.paymentmessages.dto.api.CursorPageDto;
+import com.bank.paymentmessages.dto.api.DashboardStatsDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageSummaryDto;
 import com.bank.paymentmessages.dto.api.UpdateStatusRequest;
@@ -8,6 +9,7 @@ import com.bank.paymentmessages.entity.PaymentMessageStatus;
 import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
 import com.bank.paymentmessages.service.BatchRetryService;
 import com.bank.paymentmessages.service.BatchRetryTask;
+import com.bank.paymentmessages.service.MessageQuery;
 import com.bank.paymentmessages.service.PaymentMessageService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -31,6 +33,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 
 
@@ -65,7 +68,9 @@ public class PaymentMessageController {
             summary = "Pagine et filtre la liste des messages",
             description = "Retourne une page de messages de paiement, sans leur payload : seule sa taille "
                     + "(payloadSize) est renvoyée, le payload complet est servi par GET /{id}. "
-                    + "Filtres optionnels : status, receivedAfter"
+                    + "Filtres optionnels : status, receivedAfter, type, q (fragment recherché dans la "
+                    + "référence, le messageId ou le type). Tous sont appliqués en base : une recherche "
+                    + "porte sur toute la table, pas sur la page affichée."
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Page de messages récupérée avec succès")
@@ -73,11 +78,10 @@ public class PaymentMessageController {
     public Page<PaymentMessageSummaryDto> findAll(
             @RequestParam(required = false) PaymentMessageStatus status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime receivedAfter,
+            @Parameter(description = "Type de message exact") @RequestParam(required = false) String type,
+            @Parameter(description = "Fragment recherché (référence, messageId, type)") @RequestParam(required = false) String q,
             @PageableDefault(size = 20, sort = "receivedAt", direction = Sort.Direction.DESC) Pageable pageable) {
-        if (status != null || receivedAfter != null) {
-            return service.search(status, receivedAfter, pageable);
-        }
-        return service.findAll(pageable);
+        return service.search(MessageQuery.of(status, receivedAfter, type, q), pageable);
     }
 
     @GetMapping("/cursor")
@@ -94,10 +98,12 @@ public class PaymentMessageController {
     public CursorPageDto<PaymentMessageSummaryDto> findByCursor(
             @RequestParam(required = false) PaymentMessageStatus status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime receivedAfter,
+            @Parameter(description = "Type de message exact") @RequestParam(required = false) String type,
+            @Parameter(description = "Fragment recherché (référence, messageId, type)") @RequestParam(required = false) String q,
             @Parameter(description = "Curseur rendu par l'appel précédent") @RequestParam(required = false) String cursor,
             @Parameter(description = "Taille de page, 200 au maximum")
             @RequestParam(defaultValue = "20") @Min(1) @Max(MAX_PAGE_SIZE) int size) {
-        return service.searchByCursor(status, receivedAfter, cursor, size);
+        return service.searchByCursor(MessageQuery.of(status, receivedAfter, type, q), cursor, size);
     }
 
     /**
@@ -108,16 +114,54 @@ public class PaymentMessageController {
      */
     @GetMapping("/stats")
     @Operation(summary = "Stats des messages par statut",
-            description = "Résultat mis en cache quelques secondes (cf. STATS_CACHE_TTL) et "
-                    + "servi avec un Cache-Control de même durée.")
+            description = "Compteurs par statut sous les filtres actifs (receivedAfter, type, q) : les "
+                    + "pastilles de la liste annoncent ainsi ce que donnerait un clic dessus. Sans filtre, "
+                    + "le résultat est mis en cache quelques secondes (cf. STATS_CACHE_TTL) et servi avec "
+                    + "un Cache-Control de même durée.")
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "Statistiques calculées"),
             @ApiResponse(responseCode = "304", description = "Statistiques inchangées depuis l'ETag fourni")
     })
-    public ResponseEntity<Map<PaymentMessageStatus, Long>> getStats() {
+    public ResponseEntity<Map<PaymentMessageStatus, Long>> getStats(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime receivedAfter,
+            @Parameter(description = "Type de message exact") @RequestParam(required = false) String type,
+            @Parameter(description = "Fragment recherché (référence, messageId, type)") @RequestParam(required = false) String q) {
         return ResponseEntity.ok()
                 .cacheControl(CacheControl.maxAge(statsCacheTtl))
-                .body(service.getStats());
+                .body(service.getStats(MessageQuery.of(null, receivedAfter, type, q)));
+    }
+
+    /**
+     * Agrégats du dashboard. Ils remplacent l'échantillon de 200 messages complets que le
+     * client téléchargeait pour recompter lui-même : quelques centaines d'octets, et des
+     * comptages portant sur toute la table plutôt que sur l'échantillon.
+     */
+    @GetMapping("/stats/dashboard")
+    @Operation(summary = "Agrégats du tableau de bord",
+            description = "Volume par tranche horaire sur 24 h glissantes, répartition par type, "
+                    + "répartition par nombre de tentatives et derniers messages en échec. Calculé en SQL, "
+                    + "mis en cache quelques secondes (cf. STATS_CACHE_TTL).")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Agrégats calculés"),
+            @ApiResponse(responseCode = "304", description = "Agrégats inchangés depuis l'ETag fourni")
+    })
+    public ResponseEntity<DashboardStatsDto> getDashboardStats() {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(statsCacheTtl))
+                .body(service.getDashboardStats());
+    }
+
+    @GetMapping("/types")
+    @Operation(summary = "Types de messages présents en base",
+            description = "Alimente le sélecteur de type de la barre de filtres. La liste ne peut pas être "
+                    + "déduite de la page affichée, le filtre s'appliquant désormais à toute la table.")
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "Types distincts, triés")
+    })
+    public ResponseEntity<List<String>> getMessageTypes() {
+        return ResponseEntity.ok()
+                .cacheControl(CacheControl.maxAge(statsCacheTtl))
+                .body(service.getMessageTypes());
     }
 
     @GetMapping("/{id}")

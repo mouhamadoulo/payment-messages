@@ -49,6 +49,12 @@ erDiagram
 | `idx_pm_received_at` | `received_at DESC` | B-tree | tri par défaut de la liste |
 | `idx_pm_status_received_at` | `status, received_at DESC` | B-tree | filtre par statut seul **et** filtre + tri (évite le seq scan + tri complet) |
 | `idx_pm_status_dlq_published_at` | `status, dlq_published_at` | B-tree | reprise DLQ (`DeadLetterRecoveryJob`) |
+| `idx_pm_message_type` | `message_type` | B-tree | filtre par type (serveur) et `SELECT DISTINCT message_type` du sélecteur de filtres |
+
+La recherche texte (`?q=`) compare `lower(reference)`, `lower(message_id)` et
+`lower(message_type)` à un motif `%fragment%` : aucun index B-tree ne peut la servir. Sur de
+gros volumes, la doter d'un index trigramme (`pg_trgm` + GIN) est l'étape suivante — non
+faite ici, l'extension n'étant pas garantie disponible et H2 ne sachant pas l'exprimer.
 
 ### 2.3 Contraintes
 
@@ -90,6 +96,7 @@ spring:
 |---|---|
 | `V1__baseline_schema.sql` | table `payment_messages` et ses index, en `CREATE … IF NOT EXISTS` |
 | `V2__timestamptz_version_payload_size.sql` | colonnes `version` / `payload_size`, passage des horodatages en `TIMESTAMPTZ`, backfill de `payload_size`, renommage de l'index de référence |
+| `V3__message_type_index.sql` | index sur `message_type` (filtre par type côté serveur, liste des types distincts) |
 
 Les tests tournent sur H2 avec `spring.flyway.enabled: false` et un schéma généré par
 Hibernate : les migrations sont écrites pour PostgreSQL.
@@ -131,14 +138,37 @@ ORDER BY p.receivedAt DESC, p.id DESC
 
 ### Recherche avec filtres
 
+Un prédicat unique couvre les seize combinaisons : un paramètre nul neutralise sa clause. Le
+groupe de recherche texte est parenthésé — `AND` lie plus fort que `OR`, sans quoi un fragment
+recherché annulerait les autres filtres. Le même prédicat sert la liste, son `COUNT(*)` et les
+compteurs par statut, ce qui garantit qu'un tableau et ses pastilles parlent des mêmes lignes.
+
 ```sql
--- Par statut
-SELECT p FROM PaymentMessage p WHERE p.status = :status
-
--- Par date de réception
-SELECT p FROM PaymentMessage p WHERE p.receivedAt > :receivedAfter
-
--- Combiné (statut + date)
-SELECT p FROM PaymentMessage p
-WHERE p.status = :status AND p.receivedAt > :receivedAfter
+SELECT … FROM PaymentMessage p
+WHERE (:status IS NULL OR p.status = :status)
+  AND (:receivedAfter IS NULL OR p.receivedAt > :receivedAfter)
+  AND (:type IS NULL OR p.messageType = :type)
+  AND (:text IS NULL
+       OR lower(p.reference) LIKE :text
+       OR lower(p.messageId) LIKE :text
+       OR lower(p.messageType) LIKE :text)
 ```
+
+### Agrégats du tableau de bord
+
+Calculés en SQL, en remplacement d'un échantillon de 200 messages que le client recomptait.
+Le volume horaire regroupe sur l'heure extraite de `received_at` ; la fenêtre couvrant 24
+heures consécutives alignées sur l'heure pleine, chaque heure du jour n'y apparaît qu'une fois
+et le service peut réassocier chaque tranche à son instant absolu. L'heure est extraite dans
+le fuseau de la session base de données (celui de la JVM, transmis par le pilote).
+
+```sql
+SELECT extract(hour from p.receivedAt), COUNT(p)
+FROM PaymentMessage p
+WHERE p.receivedAt >= :from
+GROUP BY extract(hour from p.receivedAt)
+```
+
+Complété par `GROUP BY p.messageType`, `GROUP BY p.retryCount` (regroupé en 0 / 1 / 2 / 3+
+côté service), `MAX(p.receivedAt)` et les cinq derniers `FAILED` / `DEAD_LETTER`. L'ensemble
+est mis en cache quelques secondes (`STATS_CACHE_TTL`).

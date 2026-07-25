@@ -44,7 +44,7 @@ com.bank.paymentmessages
 ├── config/
 │   ├── JacksonConfig.java              # Personnalisation du JsonMapper Boot
 │   ├── JmsConfig.java                  # Factory de listeners + ErrorHandler
-│   ├── CacheConfig.java                # @EnableCaching (cache messageStats)
+│   ├── CacheConfig.java                # @EnableCaching (messageStats, dashboardStats, messageTypes)
 │   ├── BatchRetryExecutorConfig.java   # Exécuteur dédié au rejeu massif
 │   ├── SecurityConfig.java             # Chaîne de filtres, JWT, rôles, CORS
 │   ├── SecurityProperties.java         # app.security.* (secret, comptes, origines)
@@ -141,9 +141,16 @@ Point d'entrée de l'API REST. Base path : `/api/v1/messages`.
 Couche métier. Contient toute la logique de traitement :
 
 - Création et mise à jour des messages
-- Recherche paginée avec filtres (statut, date), **sans payload** (projection de liste)
+- Recherche paginée avec filtres (statut, date, type, texte — cf. `MessageQuery`), **sans
+  payload** (projection de liste)
 - Pagination par curseur (`searchByCursor`) pour la navigation séquentielle
-- Statistiques par statut, **mises en cache** (`messageStats`, TTL court, invalidé à chaque écriture)
+- Statistiques par statut, **mises en cache** (`messageStats`, TTL court, invalidé à chaque
+  écriture) ; la variante filtrée n'est pas mise en cache, sa clé contiendrait un texte libre
+- Agrégats du tableau de bord (`getDashboardStats` : volume horaire sur 24 h glissantes,
+  répartition par type et par nombre de tentatives, dernière réception, cinq derniers échecs),
+  mis en cache (`dashboardStats`) et **non** invalidés par l'ingestion — sous un flux soutenu,
+  le cache serait vidé à chaque message et ne servirait plus à rien
+- Liste des types présents en base (`getMessageTypes`, cache `messageTypes`)
 - Rejeu individuel et rejeu par **lots bornés** (`retryFailedBatch`)
 - Purge de rétention par lots (`purgeProcessedBefore`)
 - Gestion des exceptions métier
@@ -180,14 +187,18 @@ Méthodes dérivées :
 | `existsByMessageId(String)` | `SELECT COUNT(*) … WHERE message_id = ?` (idempotence de l'ingestion) |
 | `findByReference(String)` | `WHERE reference = ?` |
 | `findByStatusAndDlqPublishedAtIsNull(...)` | `WHERE status = ? AND dlq_published_at IS NULL` (reprise DLQ) |
-| `findAllProjectedBy(Pageable)` | liste paginée, projection sans payload |
-| `findByStatus(PaymentMessageStatus, Pageable)` | `WHERE status = ?`, projection sans payload |
-| `findByReceivedAtAfter(OffsetDateTime, Pageable)` | `WHERE received_at > ?`, projection sans payload |
-| `findByStatusAndReceivedAtAfter(...)` | `WHERE status = ? AND received_at > ?`, projection sans payload |
-| `findNextPage(...)` | pagination keyset : `(received_at, id) < (curseur)`, `ORDER BY received_at DESC, id DESC` (JPQL) |
+| `findAllProjectedBy(Pageable)` | liste paginée non filtrée, projection sans payload |
+| `search(status, receivedAfter, type, text, Pageable)` | liste filtrée : un prédicat unique où un paramètre nul neutralise sa clause, avec `countQuery` explicite (JPQL) |
+| `findNextPage(...)` | pagination keyset : mêmes filtres + `(received_at, id) < (curseur)`, `ORDER BY received_at DESC, id DESC` (JPQL) |
+| `findRecentByStatusIn(statuses, Pageable)` | derniers messages en échec (alertes du dashboard), projection sans payload |
 | `findAllByStatus(PaymentMessageStatus, Pageable)` | lot borné d'entités complètes (rejeu massif) |
 | `findPurgeableIds(status, cutoff, Pageable)` | identifiants purgeables par la rétention (JPQL) |
 | `countByStatus()` | `SELECT status, COUNT(*) GROUP BY status` (JPQL) |
+| `countByStatusFiltered(receivedAfter, type, text)` | mêmes compteurs sous les filtres actifs, le statut excepté |
+| `findDistinctMessageTypes()` | types présents en base (sélecteur de filtres) |
+| `countByHourSince(from)` | volume par heure de réception (`extract(hour from …)`) |
+| `countByMessageType()` / `countByRetryCount()` | répartitions du dashboard, sur toute la table |
+| `findLastReceivedAt()` | `MAX(received_at)` |
 
 Les méthodes de liste renvoient `PaymentMessageSummary` : Spring Data génère un
 `select new …(p.id, p.messageId, …)`, la colonne `payload` n'est donc pas lue.
@@ -323,7 +334,7 @@ Variables optionnelles :
 | `MQ_DLQ_RECOVERY_INTERVAL` | `60000` | Période de la reprise (ms) |
 | `MQ_DLQ_RECOVERY_BATCH_SIZE` | `100` | Taille de lot de la reprise |
 | `FLYWAY_ENABLED` | `true` | Migrations de schéma au démarrage |
-| `STATS_CACHE_TTL` | `15s` | Durée de vie du cache `/stats` |
+| `STATS_CACHE_TTL` | `15s` | Durée de vie des caches de lecture (`/stats`, `/stats/dashboard`, `/types`) et du `Cache-Control` correspondant |
 | `BATCH_RETRY_SIZE` | `500` | Taille de lot du rejeu massif |
 | `BATCH_RETRY_MAX` | `100000` | Plafond de sécurité d'un rejeu massif |
 | `RETENTION_ENABLED` | `false` | Purge planifiée des `PROCESSED` |

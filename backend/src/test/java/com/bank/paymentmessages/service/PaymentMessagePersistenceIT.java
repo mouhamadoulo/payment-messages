@@ -156,7 +156,8 @@ class PaymentMessagePersistenceIT extends AbstractPostgresIT {
         List<String> visited = new ArrayList<>();
         String cursor = null;
         do {
-            CursorPageDto<PaymentMessageSummaryDto> page = service.searchByCursor(null, null, cursor, 3);
+            CursorPageDto<PaymentMessageSummaryDto> page =
+                    service.searchByCursor(MessageQuery.of(null, null, null, null), cursor, 3);
             page.content().forEach(row -> visited.add(row.getMessageId()));
             cursor = page.nextCursor();
         } while (cursor != null);

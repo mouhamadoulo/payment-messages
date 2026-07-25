@@ -1,6 +1,7 @@
 package com.bank.paymentmessages.service;
 
 import com.bank.paymentmessages.dto.api.CursorPageDto;
+import com.bank.paymentmessages.dto.api.DashboardStatsDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageSummaryDto;
 import com.bank.paymentmessages.dto.mq.PaymentMessageEvent;
@@ -28,7 +29,9 @@ import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +58,18 @@ public class PaymentMessageService {
 
     /** Nom du cache des statistiques (cf. {@code spring.cache}). */
     public static final String STATS_CACHE = "messageStats";
+
+    /** Cache des agrégats du dashboard (volume horaire, types, tentatives, alertes). */
+    public static final String DASHBOARD_CACHE = "dashboardStats";
+
+    /** Cache de la liste des types présents en base (sélecteur de la barre de filtres). */
+    public static final String TYPES_CACHE = "messageTypes";
+
+    /** Tranches du volume horaire : 24 heures glissantes, alignées sur l'heure pleine. */
+    private static final int HOURLY_WINDOW_HOURS = 24;
+
+    /** Nombre d'alertes remontées au dashboard. */
+    private static final int RECENT_FAILURES = 5;
 
     private final PaymentMessageRepository repository;
     private final DeadLetterPublisher deadLetterPublisher;
@@ -159,20 +174,18 @@ public class PaymentMessageService {
         return repository.findAllProjectedBy(pageable).map(PaymentMessageMapper::toSummaryDto);
     }
 
-    public Page<PaymentMessageSummaryDto> search(PaymentMessageStatus status, OffsetDateTime receivedAfter, Pageable pageable) {
-        if (status != null && receivedAfter != null) {
-            return repository.findByStatusAndReceivedAtAfter(status, receivedAfter, pageable)
-                    .map(PaymentMessageMapper::toSummaryDto);
+    /**
+     * Liste filtrée. Les quatre critères sont appliqués en base : le front filtrait le texte
+     * et le type sur la seule page affichée, ce qui contredisait les compteurs globaux et
+     * rendait toute recherche aveugle au-delà de la page courante.
+     */
+    public Page<PaymentMessageSummaryDto> search(MessageQuery query, Pageable pageable) {
+        if (query.isEmpty()) {
+            return findAll(pageable);
         }
-        if (status != null) {
-            return repository.findByStatus(status, pageable)
-                    .map(PaymentMessageMapper::toSummaryDto);
-        }
-        if (receivedAfter != null) {
-            return repository.findByReceivedAtAfter(receivedAfter, pageable)
-                    .map(PaymentMessageMapper::toSummaryDto);
-        }
-        return findAll(pageable);
+        return repository.search(query.status(), query.receivedAfter(), query.type(),
+                        query.textPattern(), pageable)
+                .map(PaymentMessageMapper::toSummaryDto);
     }
 
     /**
@@ -181,8 +194,7 @@ public class PaymentMessageService {
      *
      * @param cursor curseur opaque rendu par l'appel précédent, {@code null} pour la première page
      */
-    public CursorPageDto<PaymentMessageSummaryDto> searchByCursor(PaymentMessageStatus status,
-                                                                  OffsetDateTime receivedAfter,
+    public CursorPageDto<PaymentMessageSummaryDto> searchByCursor(MessageQuery query,
                                                                   String cursor,
                                                                   int size) {
 
@@ -190,8 +202,10 @@ public class PaymentMessageService {
 
         // Une ligne de plus que demandé : sa présence signale qu'il reste une page.
         List<PaymentMessageSummary> rows = repository.findNextPage(
-                status,
-                receivedAfter,
+                query.status(),
+                query.receivedAfter(),
+                query.type(),
+                query.textPattern(),
                 position == null ? null : position.receivedAt(),
                 position == null ? null : position.id(),
                 PageRequest.ofSize(size + 1));
@@ -226,19 +240,109 @@ public class PaymentMessageService {
      */
     @Cacheable(STATS_CACHE)
     public Map<PaymentMessageStatus, Long> getStats() {
-        List<Object[]> results = repository.countByStatus();
+        return toStatusMap(repository.countByStatus());
+    }
+
+    /**
+     * Compteurs par statut <b>sous les filtres actifs</b>, le statut excepté : les pastilles
+     * annoncent ce que donnerait un clic dessus, au lieu d'un total global sans rapport avec
+     * la liste affichée.
+     * <p>
+     * Sans critère, l'appel retombe sur la variante mise en cache. Les variantes filtrées ne
+     * sont volontairement pas mises en cache : la clé contiendrait un texte libre, donc un
+     * nombre non borné d'entrées.
+     */
+    public Map<PaymentMessageStatus, Long> getStats(MessageQuery query) {
+        if (!query.hasNonStatusCriteria()) {
+            return getStats();
+        }
+        return toStatusMap(repository.countByStatusFiltered(
+                query.receivedAfter(), query.type(), query.textPattern()));
+    }
+
+    /** Types de messages présents en base, pour le sélecteur de la barre de filtres. */
+    @Cacheable(TYPES_CACHE)
+    public List<String> getMessageTypes() {
+        return repository.findDistinctMessageTypes();
+    }
+
+    /**
+     * Agrégats du dashboard, calculés en SQL sur la fenêtre voulue.
+     * <p>
+     * Remplace le téléchargement d'un échantillon de 200 messages complets que le client
+     * recomptait : le volume réseau tombe de plusieurs mégaoctets à quelques centaines
+     * d'octets, et les comptages portent sur toute la table au lieu de l'échantillon.
+     * <p>
+     * Mis en cache comme l'agrégat par statut ({@code STATS_CACHE_TTL}) : cinq requêtes
+     * d'agrégation à chaque affichage seraient la lecture la plus coûteuse du système.
+     * L'ingestion ne l'invalide pas — sous un flux soutenu, le cache serait vidé à chaque
+     * message et ne servirait plus à rien ; le TTL borne la fraîcheur à quelques secondes.
+     */
+    @Cacheable(DASHBOARD_CACHE)
+    public DashboardStatsDto getDashboardStats() {
+
+        // Fenêtre alignée sur l'heure pleine : 24 tranches consécutives, donc chaque heure
+        // du jour n'y figure qu'une fois — c'est ce qui permet de réassocier une tranche à
+        // son instant absolu (au décalage près d'un changement d'heure, où deux tranches
+        // partagent la même heure locale et voient leurs comptages fusionner).
+        OffsetDateTime to = OffsetDateTime.now().truncatedTo(ChronoUnit.HOURS).plusHours(1);
+        OffsetDateTime from = to.minusHours(HOURLY_WINDOW_HOURS);
+
+        Map<Integer, Long> perHour = new HashMap<>();
+        for (Object[] row : repository.countByHourSince(from)) {
+            perHour.put(((Number) row[0]).intValue(), ((Number) row[1]).longValue());
+        }
+
+        List<DashboardStatsDto.HourlyBucket> hourly = new ArrayList<>(HOURLY_WINDOW_HOURS);
+        long windowTotal = 0;
+        for (int i = 0; i < HOURLY_WINDOW_HOURS; i++) {
+            OffsetDateTime start = from.plusHours(i);
+            long count = perHour.getOrDefault(start.getHour(), 0L);
+            hourly.add(new DashboardStatsDto.HourlyBucket(start, start.getHour(), count));
+            windowTotal += count;
+        }
+
+        List<DashboardStatsDto.TypeCount> types = new ArrayList<>();
+        for (Object[] row : repository.countByMessageType()) {
+            String type = row[0] == null ? "INCONNU" : (String) row[0];
+            types.add(new DashboardStatsDto.TypeCount(type, ((Number) row[1]).longValue()));
+        }
+
+        List<PaymentMessageSummaryDto> recentFailures = repository.findRecentByStatusIn(
+                        List.of(PaymentMessageStatus.FAILED, PaymentMessageStatus.DEAD_LETTER),
+                        PageRequest.ofSize(RECENT_FAILURES))
+                .stream()
+                .map(PaymentMessageMapper::toSummaryDto)
+                .toList();
+
+        return new DashboardStatsDto(from, to, windowTotal, repository.findLastReceivedAt(),
+                hourly, types, retryBuckets(), recentFailures);
+    }
+
+    /** Regroupe {@code retry_count} en 0 / 1 / 2 / 3+, comme le dashboard l'affiche. */
+    private DashboardStatsDto.RetryBuckets retryBuckets() {
+        long[] buckets = new long[4];
+        for (Object[] row : repository.countByRetryCount()) {
+            int retries = row[0] == null ? 0 : ((Number) row[0]).intValue();
+            buckets[Math.min(retries, 3)] += ((Number) row[1]).longValue();
+        }
+        return new DashboardStatsDto.RetryBuckets(buckets[0], buckets[1], buckets[2], buckets[3]);
+    }
+
+    /** Complète l'agrégat des statuts absents de la requête, pour un contrat stable. */
+    private static Map<PaymentMessageStatus, Long> toStatusMap(List<Object[]> rows) {
         Map<PaymentMessageStatus, Long> stats = new LinkedHashMap<>();
         for (PaymentMessageStatus status : PaymentMessageStatus.values()) {
             stats.put(status, 0L);
         }
-        for (Object[] row : results) {
+        for (Object[] row : rows) {
             stats.put((PaymentMessageStatus) row[0], (Long) row[1]);
         }
         return stats;
     }
 
     @Transactional
-    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
+    @CacheEvict(cacheNames = {STATS_CACHE, DASHBOARD_CACHE}, allEntries = true)
     public void deleteById(Long id) {
         if (!repository.existsById(id)) {
             throw new PaymentMessageNotFoundException(id);
@@ -256,7 +360,7 @@ public class PaymentMessageService {
      * @return le nombre de messages traités dans ce lot
      */
     @Transactional
-    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
+    @CacheEvict(cacheNames = {STATS_CACHE, DASHBOARD_CACHE}, allEntries = true)
     public int retryFailedBatch(int batchSize) {
 
         Page<PaymentMessage> batch = repository.findAllByStatus(
@@ -271,7 +375,7 @@ public class PaymentMessageService {
     }
 
     @Transactional
-    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
+    @CacheEvict(cacheNames = {STATS_CACHE, DASHBOARD_CACHE}, allEntries = true)
     public PaymentMessageDto retry(Long id) {
         PaymentMessage message = repository.findById(id)
                 .orElseThrow(() -> new PaymentMessageNotFoundException(id));
@@ -296,7 +400,7 @@ public class PaymentMessageService {
      * @throws InvalidStatusTransitionException si la transition n'est pas autorisée
      */
     @Transactional
-    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
+    @CacheEvict(cacheNames = {STATS_CACHE, DASHBOARD_CACHE}, allEntries = true)
     public PaymentMessageDto updateStatus(Long id, PaymentMessageStatus newStatus, String reason) {
 
         PaymentMessage message = repository.findById(id)
@@ -352,7 +456,7 @@ public class PaymentMessageService {
      * @return le nombre de lignes supprimées dans ce lot
      */
     @Transactional
-    @CacheEvict(cacheNames = STATS_CACHE, allEntries = true)
+    @CacheEvict(cacheNames = {STATS_CACHE, DASHBOARD_CACHE}, allEntries = true)
     public int purgeProcessedBefore(OffsetDateTime cutoff, int batchSize) {
 
         List<Long> ids = repository.findPurgeableIds(

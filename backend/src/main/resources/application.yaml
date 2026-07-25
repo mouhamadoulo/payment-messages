@@ -39,7 +39,9 @@ spring:
           batch_size: 50
 
   cache:
-    cache-names: messageStats
+    # messageStats : agrégat par statut ; dashboardStats : agrégats du tableau de bord
+    # (volume horaire, types, tentatives, alertes) ; messageTypes : types distincts.
+    cache-names: messageStats,dashboardStats,messageTypes
     caffeine:
       spec: maximumSize=16,expireAfterWrite=${STATS_CACHE_TTL:15s},recordStats
 

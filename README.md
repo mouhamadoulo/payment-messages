@@ -261,9 +261,11 @@ Base path : `/api/v1/messages`
 | Méthode | Path | Description |
 |---|---|---|
 | `POST` | `/api/v1/auth/login` | Émission d'un jeton JWT (seul endpoint public) |
-| `GET` | `/api/v1/messages` | Liste paginée, sans payload (filtres : status, receivedAfter) |
+| `GET` | `/api/v1/messages` | Liste paginée, sans payload (filtres : status, receivedAfter, type, q) |
 | `GET` | `/api/v1/messages/cursor` | Liste paginée par curseur (keyset) |
-| `GET` | `/api/v1/messages/stats` | Statistiques par statut |
+| `GET` | `/api/v1/messages/stats` | Statistiques par statut (filtres : receivedAfter, type, q) |
+| `GET` | `/api/v1/messages/stats/dashboard` | Agrégats du tableau de bord (volume horaire, types, tentatives, alertes) |
+| `GET` | `/api/v1/messages/types` | Types de messages présents en base |
 | `GET` | `/api/v1/messages/{id}` | Détail d'un message (payload inclus) |
 | `DELETE` | `/api/v1/messages/{id}` | Suppression (204) |
 | `POST` | `/api/v1/messages/batch/retry-failed` | Relance batch des échecs (202 + `taskId`) |

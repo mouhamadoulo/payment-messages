@@ -15,10 +15,8 @@ import { messagePayloadSize } from '../../../../shared/util/payload.util';
   template: `
     <div class="page">
       <app-message-filter
-        [counts]="counts()" [total]="svc.total()" [types]="types()"
+        [counts]="counts()" [total]="svc.total()" [types]="svc.messageTypes()"
         (filterChange)="onFilter($event)"
-        (typeChange)="typeFilter.set($event)"
-        (searchChange)="svc.searchTerm.set($event)"
         (exportCsv)="exportCsv()" />
 
       @if (svc.loading()) {
@@ -32,11 +30,11 @@ import { messagePayloadSize } from '../../../../shared/util/payload.util';
             </div>
           }
         </div>
-      } @else if (!rows().length) {
+      } @else if (!svc.messages().length) {
         <div class="state">Aucun message ne correspond aux filtres</div>
       } @else {
         <app-message-table
-          [messages]="rows()" [page]="svc.currentPage()" [sort]="sort()"
+          [messages]="svc.messages()" [page]="svc.currentPage()" [sort]="sort()"
           [selectedId]="svc.currentMessage()?.id ?? null"
           [flashId]="svc.changedId()"
           (sortChange)="onSort($event)"
@@ -83,24 +81,14 @@ export class MessageListPage implements OnInit, AfterViewInit {
   private readonly filterCmp = viewChild(MessageFilterComponent);
 
   protected readonly sort = signal(DEFAULT_SORT);
-  protected readonly typeFilter = signal('');
   protected readonly skRows = Array(8);
   protected readonly skCols = Array(8);
   private filters: MessageFilters = {};
   private pageIndex = 0;
   private pageSize = 20;
 
+  /** compteurs par statut, calculés par le serveur sous les autres filtres actifs */
   protected readonly counts = computed(() => (this.svc.stats() as Record<string, number>) ?? {});
-
-  protected readonly types = computed(() =>
-    [...new Set(this.svc.messages().map((m) => m.messageType).filter(Boolean))].sort());
-
-  /** page serveur, puis filtres client (recherche plein texte + type) */
-  protected readonly rows = computed(() => {
-    const type = this.typeFilter();
-    const list = this.svc.filteredMessages();
-    return type ? list.filter((m) => m.messageType === type) : list;
-  });
 
   ngOnInit() {
     this.svc.clearCurrent();
@@ -111,7 +99,7 @@ export class MessageListPage implements OnInit, AfterViewInit {
       this.filterCmp()?.setStatus(status ?? undefined);
       this.load();
     });
-    this.svc.loadStats();
+    this.svc.loadMessageTypes();
   }
 
   /** la première émission des query params précède l'initialisation de la vue */
@@ -119,8 +107,14 @@ export class MessageListPage implements OnInit, AfterViewInit {
     this.filterCmp()?.setStatus(this.filters.status);
   }
 
+  /**
+   * Liste et compteurs partent du même prédicat : les pastilles annoncent ce que donnerait
+   * un clic dessus, au lieu de compter toute la table pendant que le tableau n'affiche
+   * qu'un sous-ensemble filtré.
+   */
   private load() {
     this.svc.loadMessages(this.filters, this.pageIndex, this.pageSize, this.sort());
+    this.svc.loadStats(this.filters);
   }
 
   protected onFilter(filters: MessageFilters) {
@@ -172,7 +166,7 @@ export class MessageListPage implements OnInit, AfterViewInit {
   }
 
   protected exportCsv() {
-    const rows = this.rows();
+    const rows = this.svc.messages();
     if (!rows.length) return;
     const header = ['id', 'reference', 'messageId', 'messageType', 'status', 'retryCount',
                     'payloadBytes', 'receivedAt', 'updatedAt', 'errorMessage'];

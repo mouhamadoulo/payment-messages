@@ -97,6 +97,8 @@ servi par `GET /api/v1/messages/{id}`.
 |---|---|---|---|
 | `status` | `PaymentMessageStatus` | Non | Filtre par statut |
 | `receivedAfter` | `OffsetDateTime` (ISO, fuseau inclus) | Non | Filtre par date de réception |
+| `type` | `String` | Non | Filtre par type de message (égalité stricte) |
+| `q` | `String` | Non | Fragment recherché, insensible à la casse, dans `reference`, `messageId` ou `messageType` |
 | `page` | `int` | Non (défaut: 0) | Numéro de page |
 | `size` | `int` | Non (défaut: 20) | Taille de page |
 | `sort` | `String` | Non (défaut: `receivedAt,desc`) | Tri serveur |
@@ -138,6 +140,8 @@ que soit la profondeur de navigation. Le tri est figé sur `receivedAt DESC, id 
 |---|---|---|---|
 | `status` | `PaymentMessageStatus` | Non | Filtre par statut |
 | `receivedAfter` | `OffsetDateTime` (ISO) | Non | Filtre par date de réception |
+| `type` | `String` | Non | Filtre par type de message |
+| `q` | `String` | Non | Fragment recherché (`reference`, `messageId`, `messageType`) |
 | `cursor` | `String` | Non | Curseur opaque rendu par l'appel précédent ; absent = première page |
 | `size` | `int` | Non (défaut: 20) | Nombre de messages à rendre |
 
@@ -157,9 +161,23 @@ que soit la profondeur de navigation. Le tri est figé sur `receivedAt DESC, id 
 
 ### GET /api/v1/messages/stats
 
-Retourne le nombre de messages pour chaque statut. L'agrégat est mis en cache côté serveur
-quelques secondes (`STATS_CACHE_TTL`) et servi avec un `Cache-Control: max-age` de même
-durée plus un `ETag` : un rappel inchangé répond `304` sans corps.
+Retourne le nombre de messages pour chaque statut, **sous les filtres actifs** : les pastilles
+de la liste annoncent ainsi ce que donnerait un clic dessus, au lieu d'un total global sans
+rapport avec les lignes affichées. Le statut n'est volontairement pas un paramètre — c'est la
+dimension de regroupement.
+
+Sans filtre, l'agrégat est mis en cache côté serveur quelques secondes (`STATS_CACHE_TTL`) et
+servi avec un `Cache-Control: max-age` de même durée plus un `ETag` : un rappel inchangé
+répond `304` sans corps. Les variantes filtrées ne sont pas mises en cache (la clé
+contiendrait un texte libre, donc un nombre non borné d'entrées).
+
+**Paramètres**
+
+| Nom | Type | Requis | Description |
+|---|---|---|---|
+| `receivedAfter` | `OffsetDateTime` (ISO) | Non | Filtre par date de réception |
+| `type` | `String` | Non | Filtre par type de message |
+| `q` | `String` | Non | Fragment recherché (`reference`, `messageId`, `messageType`) |
 
 **Réponse** `200 OK`
 
@@ -170,6 +188,57 @@ durée plus un `ETag` : un rappel inchangé répond `304` sans corps.
   "FAILED": 3,
   "DEAD_LETTER": 1
 }
+```
+
+---
+
+### GET /api/v1/messages/stats/dashboard
+
+Agrégats du tableau de bord, **calculés en SQL**. Le dashboard dérivait auparavant toutes ses
+visualisations d'un échantillon de 200 messages complets : plusieurs mégaoctets transférés
+pour afficher une vingtaine de nombres, et des chiffres faux dès que la table dépassait 200
+lignes. Cette réponse pèse quelques centaines d'octets et porte des comptages exacts.
+
+- `hourly` : 24 tranches horaires consécutives, alignées sur l'heure pleine, **toujours
+  présentes même à zéro**. Chaque tranche porte son instant de début (`bucketStart`, fuseau
+  inclus) et l'heure correspondante côté serveur (`hour`) — l'heure est extraite dans le
+  fuseau de la session base de données.
+- `types` et `retries` : calculés sur **toute la table**, donc cohérents avec l'agrégat par
+  statut de `/stats`.
+- `recentFailures` : les cinq derniers messages `FAILED` / `DEAD_LETTER`, sous forme de
+  `PaymentMessageSummaryDto` (sans payload).
+
+Mis en cache et servi avec `Cache-Control` + `ETag` comme `/stats`. Le cache n'est **pas**
+invalidé par l'ingestion (sous un flux soutenu, il serait vidé à chaque message et ne
+servirait plus à rien) mais l'est par toute action unitaire ou massive de l'API.
+
+**Réponse** `200 OK`
+
+```json
+{
+  "windowFrom": "2025-01-14T11:00:00+01:00",
+  "windowTo": "2025-01-15T11:00:00+01:00",
+  "windowTotal": 128,
+  "lastReceivedAt": "2025-01-15T10:58:12+01:00",
+  "hourly": [ { "bucketStart": "2025-01-14T11:00:00+01:00", "hour": 11, "count": 4 } ],
+  "types": [ { "messageType": "PAYMENT_REQUEST", "count": 120 } ],
+  "retries": { "none": 118, "one": 6, "two": 3, "threeOrMore": 1 },
+  "recentFailures": [ { "id": 42, "messageId": "MQ-MSG-20250115-042", "status": "FAILED" } ]
+}
+```
+
+---
+
+### GET /api/v1/messages/types
+
+Types de messages présents en base, triés. Alimente le sélecteur de la barre de filtres : la
+liste ne peut plus être déduite de la page affichée, le filtre par type s'appliquant
+désormais à toute la table. Mis en cache et servi avec `Cache-Control` comme `/stats`.
+
+**Réponse** `200 OK`
+
+```json
+["PAYMENT_REQUEST", "PAYMENT_STATUS"]
 ```
 
 ---

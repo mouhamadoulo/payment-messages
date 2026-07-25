@@ -71,9 +71,11 @@ L'API est **fermée** : hormis l'authentification, tout appel exige un jeton
 | Méthode | Path | Action | Rôle |
 |---|---|---|---|
 | `POST` | `/api/v1/auth/login` | Émission d'un jeton JWT | public |
-| `GET` | `/api/v1/messages` | Liste paginée avec filtres (statut, date) | authentifié |
+| `GET` | `/api/v1/messages` | Liste paginée avec filtres (statut, date, type, recherche) | authentifié |
 | `GET` | `/api/v1/messages/cursor` | Pagination par curseur (keyset) | authentifié |
-| `GET` | `/api/v1/messages/stats` | Statistiques par statut | authentifié |
+| `GET` | `/api/v1/messages/stats` | Compteurs par statut sous les filtres actifs | authentifié |
+| `GET` | `/api/v1/messages/stats/dashboard` | Agrégats du tableau de bord, calculés en SQL | authentifié |
+| `GET` | `/api/v1/messages/types` | Types de messages présents en base | authentifié |
 | `GET` | `/api/v1/messages/{id}` | Détail d'un message | authentifié |
 | `DELETE` | `/api/v1/messages/{id}` | Suppression | `ADMIN` |
 | `POST` | `/api/v1/messages/batch/retry-failed` | Relance des messages en échec | `ADMIN` |

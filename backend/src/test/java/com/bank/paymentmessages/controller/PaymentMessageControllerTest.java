@@ -1,6 +1,7 @@
 package com.bank.paymentmessages.controller;
 
 import com.bank.paymentmessages.dto.api.CursorPageDto;
+import com.bank.paymentmessages.dto.api.DashboardStatsDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageSummaryDto;
 import com.bank.paymentmessages.entity.PaymentMessageStatus;
@@ -9,8 +10,10 @@ import com.bank.paymentmessages.exception.PaymentMessageNotFoundException;
 import com.bank.paymentmessages.service.BatchRetryService;
 import com.bank.paymentmessages.service.BatchRetryTask;
 import com.bank.paymentmessages.config.SecurityConfig;
+import com.bank.paymentmessages.service.MessageQuery;
 import com.bank.paymentmessages.service.PaymentMessageService;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.data.domain.Page;
@@ -23,10 +26,12 @@ import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.eq;
@@ -73,7 +78,7 @@ class PaymentMessageControllerTest {
                         .status(PaymentMessageStatus.PROCESSED).build()
         ));
 
-        when(service.findAll(any(Pageable.class))).thenReturn(page);
+        when(service.search(any(MessageQuery.class), any(Pageable.class))).thenReturn(page);
 
         mockMvc.perform(get("/api/v1/messages"))
                 .andExpect(status().isOk())
@@ -86,7 +91,7 @@ class PaymentMessageControllerTest {
     @Test
     @WithMockUser
     void cursorEndpointShouldReturnNextCursor() throws Exception {
-        when(service.searchByCursor(isNull(), isNull(), isNull(), anyInt())).thenReturn(
+        when(service.searchByCursor(any(MessageQuery.class), isNull(), anyInt())).thenReturn(
                 new CursorPageDto<>(
                         List.of(PaymentMessageSummaryDto.builder().id(1L).messageId("m1").build()),
                         "Y3Vyc29y", true));
@@ -151,7 +156,7 @@ class PaymentMessageControllerTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON));
 
-        verify(service, never()).findAll(any(Pageable.class));
+        verify(service, never()).search(any(MessageQuery.class), any(Pageable.class));
     }
 
     @Test
@@ -230,7 +235,82 @@ class PaymentMessageControllerTest {
         mockMvc.perform(get("/api/v1/messages/cursor").param("size", "100000"))
                 .andExpect(status().isBadRequest());
 
-        verify(service, never()).searchByCursor(any(), any(), any(), anyInt());
+        verify(service, never()).searchByCursor(any(), any(), anyInt());
+    }
+
+    // ------------------------------------- F1 / F2 / F3 : filtres et agrégats côté serveur
+
+    @Test
+    @WithMockUser
+    void listShouldForwardEveryFilterToTheService() throws Exception {
+        when(service.search(any(MessageQuery.class), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of()));
+        ArgumentCaptor<MessageQuery> query = ArgumentCaptor.forClass(MessageQuery.class);
+
+        mockMvc.perform(get("/api/v1/messages")
+                        .param("status", "FAILED")
+                        .param("type", "pacs.008")
+                        .param("q", "  REF-42 ")
+                        .param("receivedAfter", "2026-07-01T00:00:00+02:00"))
+                .andExpect(status().isOk());
+
+        verify(service).search(query.capture(), any(Pageable.class));
+        assertThat(query.getValue().status()).isEqualTo(PaymentMessageStatus.FAILED);
+        assertThat(query.getValue().type()).isEqualTo("pacs.008");
+        // Normalisé une fois pour toutes : la requête compare lower(colonne) au motif.
+        assertThat(query.getValue().text()).isEqualTo("ref-42");
+        assertThat(query.getValue().receivedAfter()).isNotNull();
+    }
+
+    @Test
+    @WithMockUser
+    void statsShouldForwardTheNonStatusFilters() throws Exception {
+        when(service.getStats(any(MessageQuery.class))).thenReturn(Map.of(PaymentMessageStatus.FAILED, 2L));
+        ArgumentCaptor<MessageQuery> query = ArgumentCaptor.forClass(MessageQuery.class);
+
+        mockMvc.perform(get("/api/v1/messages/stats").param("type", "pacs.008").param("q", "ref"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.FAILED").value(2));
+
+        verify(service).getStats(query.capture());
+        assertThat(query.getValue().type()).isEqualTo("pacs.008");
+        assertThat(query.getValue().status()).isNull();
+    }
+
+    @Test
+    @WithMockUser
+    void dashboardShouldExposeAggregatesAndBeCacheable() throws Exception {
+        OffsetDateTime from = OffsetDateTime.parse("2026-07-24T15:00:00+02:00");
+        when(service.getDashboardStats()).thenReturn(new DashboardStatsDto(
+                from, from.plusHours(24), 12L, from.plusHours(23),
+                List.of(new DashboardStatsDto.HourlyBucket(from, 15, 12L)),
+                List.of(new DashboardStatsDto.TypeCount("pacs.008", 12L)),
+                new DashboardStatsDto.RetryBuckets(10L, 1L, 0L, 1L),
+                List.of(PaymentMessageSummaryDto.builder().id(9L).messageId("m9")
+                        .status(PaymentMessageStatus.FAILED).build())));
+
+        mockMvc.perform(get("/api/v1/messages/stats/dashboard"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "max-age=15"))
+                .andExpect(jsonPath("$.windowTotal").value(12))
+                .andExpect(jsonPath("$.hourly[0].count").value(12))
+                .andExpect(jsonPath("$.types[0].messageType").value("pacs.008"))
+                .andExpect(jsonPath("$.retries.threeOrMore").value(1))
+                .andExpect(jsonPath("$.recentFailures[0].messageId").value("m9"))
+                .andExpect(jsonPath("$.recentFailures[0].payload").doesNotExist());
+    }
+
+    @Test
+    @WithMockUser
+    void typesEndpointShouldNotBeShadowedByTheIdRoute() throws Exception {
+        when(service.getMessageTypes()).thenReturn(List.of("pacs.002", "pacs.008"));
+
+        mockMvc.perform(get("/api/v1/messages/types"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0]").value("pacs.002"))
+                .andExpect(jsonPath("$[1]").value("pacs.008"));
+
+        verify(service, never()).findById(any());
     }
 
     /** L'ETag, posé par un filtre enregistré via FilterRegistrationBean, est couvert par
@@ -238,7 +318,7 @@ class PaymentMessageControllerTest {
     @Test
     @WithMockUser
     void statsShouldBeCacheable() throws Exception {
-        when(service.getStats()).thenReturn(Map.of(PaymentMessageStatus.RECEIVED, 3L));
+        when(service.getStats(any(MessageQuery.class))).thenReturn(Map.of(PaymentMessageStatus.RECEIVED, 3L));
 
         mockMvc.perform(get("/api/v1/messages/stats"))
                 .andExpect(status().isOk())

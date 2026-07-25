@@ -1,8 +1,13 @@
 import { Component, input, output, signal } from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
+import { Subject, debounceTime, distinctUntilChanged } from 'rxjs';
 import { FormsModule } from '@angular/forms';
 import { PaymentMessageStatus, MessageFilters } from '../../models/message.model';
 import { STATUS_ORDER, statusMeta } from '../../../../shared/config/status.config';
 import { IconComponent } from '../../../../shared/ui/icon/icon.component';
+
+/** Anti-rebond de la recherche : une requête par saisie, pas une par frappe. */
+const SEARCH_DEBOUNCE_MS = 250;
 
 @Component({
   selector: 'app-message-filter',
@@ -14,11 +19,11 @@ import { IconComponent } from '../../../../shared/ui/icon/icon.component';
         <div class="search">
           <app-icon name="search" [size]="16" />
           <input type="search" [ngModel]="search()" (ngModelChange)="onSearch($event)"
-                 placeholder="Filtrer la page courante (référence, message ID, type…)" />
+                 placeholder="Rechercher (référence, message ID, type…)" />
         </div>
 
         <select class="select" [ngModel]="type()" (ngModelChange)="onType($event)"
-                title="Type de message (page courante)">
+                title="Type de message">
           <option value="">Tous les types</option>
           @for (t of types(); track t) { <option [value]="t">{{ t }}</option> }
         </select>
@@ -28,7 +33,7 @@ import { IconComponent } from '../../../../shared/ui/icon/icon.component';
           <input type="date" [ngModel]="date()" (ngModelChange)="onDate($event)" />
         </label>
 
-        <button class="btn" (click)="exportCsv.emit()" title="Exporter la page courante">
+        <button class="btn" (click)="exportCsv.emit()" title="Exporter la page affichée">
           <app-icon name="download" [size]="15" /> Export CSV
         </button>
 
@@ -89,15 +94,14 @@ import { IconComponent } from '../../../../shared/ui/icon/icon.component';
   `]
 })
 export class MessageFilterComponent {
-  /** compteurs globaux issus de /messages/stats */
+  /** compteurs par statut sous les filtres actifs (cf. /messages/stats) */
   readonly counts = input<Record<string, number>>({});
   readonly total = input<number>(0);
-  /** types présents dans la page courante */
+  /** types présents en base (cf. /messages/types) */
   readonly types = input<string[]>([]);
 
+  /** un seul flux de critères : les quatre partent ensemble vers le serveur */
   readonly filterChange = output<MessageFilters>();
-  readonly typeChange = output<string>();
-  readonly searchChange = output<string>();
   readonly exportCsv = output<void>();
 
   protected readonly statuses = STATUS_ORDER.map((status) => ({ status, ...statusMeta(status) }));
@@ -105,6 +109,15 @@ export class MessageFilterComponent {
   protected readonly date = signal('');
   protected readonly type = signal('');
   protected readonly search = signal('');
+
+  private readonly searchInput = new Subject<string>();
+
+  constructor() {
+    // La saisie déclenche une requête serveur : sans anti-rebond, « REF-42 » en lancerait six.
+    this.searchInput
+      .pipe(debounceTime(SEARCH_DEBOUNCE_MS), distinctUntilChanged(), takeUntilDestroyed())
+      .subscribe(() => this.emit());
+  }
 
   /** synchronise les chips avec le filtre reçu en query param, sans ré-émettre */
   setStatus(status: PaymentMessageStatus | undefined) {
@@ -121,19 +134,17 @@ export class MessageFilterComponent {
   }
   protected onType(value: string) {
     this.type.set(value ?? '');
-    this.typeChange.emit(this.type());
+    this.emit();
   }
   protected onSearch(value: string) {
     this.search.set(value ?? '');
-    this.searchChange.emit(this.search());
+    this.searchInput.next(this.search());
   }
   protected reset() {
     this.status.set(undefined);
     this.date.set('');
     this.type.set('');
     this.search.set('');
-    this.typeChange.emit('');
-    this.searchChange.emit('');
     this.emit();
   }
 
@@ -142,6 +153,9 @@ export class MessageFilterComponent {
     const status = this.status();
     if (status) filters.status = status;
     if (this.date()) filters.receivedAfter = new Date(this.date()).toISOString();
+    if (this.type()) filters.type = this.type();
+    const search = this.search().trim();
+    if (search) filters.q = search;
     this.filterChange.emit(filters);
   }
 }

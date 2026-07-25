@@ -1,6 +1,7 @@
 package com.bank.paymentmessages.service;
 
 import com.bank.paymentmessages.dto.api.CursorPageDto;
+import com.bank.paymentmessages.dto.api.DashboardStatsDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageDto;
 import com.bank.paymentmessages.dto.api.PaymentMessageSummaryDto;
 import com.bank.paymentmessages.dto.mq.PaymentMessageEvent;
@@ -20,6 +21,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.OffsetDateTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Optional;
 
@@ -42,6 +44,9 @@ import org.springframework.data.domain.Pageable;
 class PaymentMessageServiceTest {
 
     private static final int MAX_RETRIES = 3;
+
+    /** Recherche sans aucun critère. */
+    private static final MessageQuery NO_FILTER = MessageQuery.of(null, null, null, null);
 
     @Mock
     private PaymentMessageRepository repository;
@@ -154,10 +159,10 @@ class PaymentMessageServiceTest {
     @Test
     void cursorPageShouldRenderRequestedSizeAndExposeNextCursor() {
         // Le service demande une ligne de plus que la taille voulue pour savoir s'il reste une page.
-        when(repository.findNextPage(isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+        when(repository.findNextPage(isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(List.of(summary(1L, "m1"), summary(2L, "m2"), summary(3L, "m3")));
 
-        CursorPageDto<PaymentMessageSummaryDto> page = service.searchByCursor(null, null, null, 2);
+        CursorPageDto<PaymentMessageSummaryDto> page = service.searchByCursor(NO_FILTER, null, 2);
 
         assertThat(page.content()).hasSize(2);
         assertThat(page.hasNext()).isTrue();
@@ -166,10 +171,10 @@ class PaymentMessageServiceTest {
 
     @Test
     void cursorPageShouldStopWhenNoFurtherRow() {
-        when(repository.findNextPage(isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
+        when(repository.findNextPage(isNull(), isNull(), isNull(), isNull(), isNull(), isNull(), any(Pageable.class)))
                 .thenReturn(List.of(summary(1L, "m1")));
 
-        CursorPageDto<PaymentMessageSummaryDto> page = service.searchByCursor(null, null, null, 2);
+        CursorPageDto<PaymentMessageSummaryDto> page = service.searchByCursor(NO_FILTER, null, 2);
 
         assertThat(page.content()).hasSize(1);
         assertThat(page.hasNext()).isFalse();
@@ -178,9 +183,109 @@ class PaymentMessageServiceTest {
 
     @Test
     void cursorPageShouldRejectUnreadableCursor() {
-        assertThatThrownBy(() -> service.searchByCursor(null, null, "not-a-cursor", 20))
+        assertThatThrownBy(() -> service.searchByCursor(NO_FILTER, "not-a-cursor", 20))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("Curseur");
+    }
+
+    // ---------------------------------------- F1 : agrégats du dashboard calculés en SQL
+
+    @Test
+    void dashboardShouldRenderTwentyFourConsecutiveHourlyBuckets() {
+        OffsetDateTime nowHour = OffsetDateTime.now().truncatedTo(ChronoUnit.HOURS);
+        when(repository.countByHourSince(any(OffsetDateTime.class))).thenReturn(List.of(
+                new Object[]{nowHour.getHour(), 7L},
+                new Object[]{nowHour.minusHours(3).getHour(), 2L}));
+
+        DashboardStatsDto stats = service.getDashboardStats();
+
+        // Les tranches vides sont présentes : l'histogramme n'a pas à combler des trous.
+        assertThat(stats.hourly()).hasSize(24);
+        assertThat(stats.windowTotal()).isEqualTo(9L);
+        assertThat(stats.hourly().get(23).count()).isEqualTo(7L);
+        assertThat(stats.hourly().get(20).count()).isEqualTo(2L);
+        assertThat(stats.windowFrom()).isEqualTo(stats.windowTo().minusHours(24));
+    }
+
+    @Test
+    void dashboardShouldFoldRetryCountsIntoDisplayBuckets() {
+        when(repository.countByRetryCount()).thenReturn(List.of(
+                new Object[]{0, 10L},
+                new Object[]{1, 4L},
+                new Object[]{2, 3L},
+                new Object[]{5, 2L},
+                new Object[]{9, 1L}));
+
+        DashboardStatsDto.RetryBuckets retries = service.getDashboardStats().retries();
+
+        assertThat(retries.none()).isEqualTo(10L);
+        assertThat(retries.one()).isEqualTo(4L);
+        assertThat(retries.two()).isEqualTo(3L);
+        // Au-delà de deux tentatives, seul compte l'acharnement : 5 et 9 sont regroupés.
+        assertThat(retries.threeOrMore()).isEqualTo(3L);
+    }
+
+    @Test
+    void dashboardShouldNameUntypedMessagesAndKeepFailureAlerts() {
+        when(repository.countByMessageType()).thenReturn(List.of(
+                new Object[]{"pacs.008", 12L},
+                new Object[]{null, 2L}));
+        when(repository.findRecentByStatusIn(
+                eq(List.of(PaymentMessageStatus.FAILED, PaymentMessageStatus.DEAD_LETTER)), any(Pageable.class)))
+                .thenReturn(List.of(summary(1L, "m1")));
+
+        DashboardStatsDto stats = service.getDashboardStats();
+
+        assertThat(stats.types()).extracting(DashboardStatsDto.TypeCount::messageType)
+                .containsExactly("pacs.008", "INCONNU");
+        assertThat(stats.recentFailures()).hasSize(1);
+        assertThat(stats.recentFailures().get(0).getMessageId()).isEqualTo("m1");
+        // Les alertes empruntent la projection de liste : aucun payload ne remonte.
+        assertThat(stats.recentFailures().get(0).getPayloadSize()).isEqualTo(120);
+    }
+
+    @Test
+    void statsShouldUseTheFilteredQueryOnlyWhenACriterionIsActive() {
+        when(repository.countByStatus())
+                .thenReturn(List.<Object[]>of(new Object[]{PaymentMessageStatus.RECEIVED, 5L}));
+        when(repository.countByStatusFiltered(isNull(), eq("pacs.008"), isNull()))
+                .thenReturn(List.<Object[]>of(new Object[]{PaymentMessageStatus.RECEIVED, 2L}));
+
+        assertThat(service.getStats(NO_FILTER)).containsEntry(PaymentMessageStatus.RECEIVED, 5L);
+        assertThat(service.getStats(MessageQuery.of(null, null, "pacs.008", null)))
+                .containsEntry(PaymentMessageStatus.RECEIVED, 2L);
+
+        // Un filtre de statut seul ne change pas les compteurs : chaque pastille garde le sien.
+        assertThat(service.getStats(MessageQuery.of(PaymentMessageStatus.FAILED, null, null, null)))
+                .containsEntry(PaymentMessageStatus.RECEIVED, 5L);
+    }
+
+    @Test
+    void statsShouldReportEveryStatusEvenAbsentFromTheQuery() {
+        when(repository.countByStatus())
+                .thenReturn(List.<Object[]>of(new Object[]{PaymentMessageStatus.FAILED, 3L}));
+
+        assertThat(service.getStats())
+                .containsEntry(PaymentMessageStatus.FAILED, 3L)
+                .containsEntry(PaymentMessageStatus.DEAD_LETTER, 0L)
+                .hasSize(PaymentMessageStatus.values().length);
+    }
+
+    @Test
+    void searchWithoutCriteriaShouldTakeTheUnfilteredPath() {
+        when(repository.findAllProjectedBy(any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(summary(1L, "m1"))));
+
+        assertThat(service.search(NO_FILTER, Pageable.unpaged())).hasSize(1);
+        verify(repository, never()).search(any(), any(), any(), any(), any(Pageable.class));
+    }
+
+    @Test
+    void searchShouldPassTheTextAsAContainsPattern() {
+        when(repository.search(isNull(), isNull(), isNull(), eq("%ref-1%"), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(summary(1L, "m1"))));
+
+        assertThat(service.search(MessageQuery.of(null, null, null, "  REF-1 "), Pageable.unpaged())).hasSize(1);
     }
 
     private static PaymentMessageSummary summary(Long id, String messageId) {

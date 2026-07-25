@@ -31,7 +31,7 @@ class SchemaMigrationIT extends AbstractPostgresIT {
         List<Map<String, Object>> history = jdbcTemplate.queryForList(
                 "SELECT version, success FROM flyway_schema_history WHERE version IS NOT NULL ORDER BY installed_rank");
 
-        assertThat(history).extracting(row -> row.get("version")).contains("1", "2");
+        assertThat(history).extracting(row -> row.get("version")).contains("1", "2", "3");
         assertThat(history).allSatisfy(row -> assertThat(row.get("success")).isEqualTo(true));
     }
 
@@ -66,7 +66,9 @@ class SchemaMigrationIT extends AbstractPostgresIT {
                 "idx_pm_reference",
                 "idx_pm_received_at",
                 "idx_pm_status_received_at",
-                "idx_pm_status_dlq_published_at");
+                "idx_pm_status_dlq_published_at",
+                // Filtre par type côté serveur et liste des types distincts (F3).
+                "idx_pm_message_type");
     }
 
     /** L'idempotence de l'ingestion repose entièrement sur cette contrainte (B4). */

@@ -5,10 +5,7 @@ import { PaymentMessage, PaymentMessageStatus } from '../../models/message.model
 import { STATUS_ORDER, statusMeta } from '../../../../shared/config/status.config';
 import { AutoAnimateDirective } from '../../../../shared/ui/auto-animate.directive';
 import { KpiCardComponent } from '../../../../shared/ui/kpi-card/kpi-card.component';
-import { hourHistogram } from '../../../../shared/ui/histogram/hour-histogram';
 import { relativeTime } from '../../../../shared/util/payload.util';
-
-const SAMPLE_SIZE = 200;
 
 @Component({
   selector: 'app-dashboard',
@@ -51,20 +48,20 @@ const SAMPLE_SIZE = 200;
         <div class="card">
           <div class="card-head">
             <h3>Volume par heure de réception</h3>
-            <span class="meta">{{ sampleSize() }} derniers messages</span>
+            <span class="meta">24 h glissantes · {{ fmt(windowTotal()) }} messages</span>
           </div>
-          @if (sampleSize()) {
+          @if (windowTotal()) {
             <div class="bars">
-              @for (bar of volumeBars(); track bar.hour) {
+              @for (bar of volumeBars(); track bar.start) {
                 <div class="bar" [style.height.%]="bar.pct"
-                     [title]="bar.hour + 'h · ' + bar.count + ' message(s)'"></div>
+                     [title]="bar.label + ' · ' + bar.count + ' message(s)'"></div>
               }
             </div>
             <div class="axis">
-              <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
+              @for (tick of axisTicks(); track tick) { <span>{{ tick }}</span> }
             </div>
           } @else {
-            <p class="empty">Aucun message à représenter</p>
+            <p class="empty">Aucun message reçu sur les 24 dernières heures</p>
           }
         </div>
 
@@ -103,7 +100,7 @@ const SAMPLE_SIZE = 200;
         <div class="card">
           <div class="card-head">
             <h3>Répartition par type de message</h3>
-            <span class="meta">{{ sampleSize() }} derniers messages</span>
+            <span class="meta">{{ fmt(total()) }} messages</span>
           </div>
           @if (typeDist().length) {
             <div class="rows" appAutoAnimate>
@@ -160,7 +157,7 @@ const SAMPLE_SIZE = 200;
             }
           </div>
         } @else {
-          <p class="empty">Aucun message en échec sur les {{ sampleSize() }} derniers reçus</p>
+          <p class="empty">Aucun message en échec</p>
         }
       </section>
       }
@@ -263,10 +260,15 @@ const SAMPLE_SIZE = 200;
 export class DashboardPage implements OnInit {
   protected readonly svc = inject(MessageService);
 
+  /**
+   * Deux appels seulement : les compteurs par statut et les agrégats calculés en SQL. Le
+   * dashboard téléchargeait auparavant 200 messages complets (payloads inclus) pour
+   * recompter côté client une vingtaine de nombres — faux dès que la table dépassait 200
+   * lignes, puisque l'échantillon n'était pas représentatif.
+   */
   ngOnInit() {
     this.svc.loadStats();
-    this.svc.loadActivitySample(SAMPLE_SIZE);
-    this.svc.loadVolume24h();
+    this.svc.loadDashboard();
   }
 
   protected readonly skKpis = Array(5);
@@ -278,11 +280,11 @@ export class DashboardPage implements OnInit {
   protected count(s: string) { return this.statsMap()[s] ?? 0; }
   protected fmt(n: number) { return n.toLocaleString('fr-FR'); }
 
-  protected readonly sampleSize = computed(() => this.svc.activitySample().length);
+  protected readonly windowTotal = computed(() => this.svc.dashboard()?.windowTotal ?? 0);
 
   protected readonly volume24h = computed(() => {
-    const v = this.svc.volume24h();
-    return v == null ? '—' : this.fmt(v);
+    const stats = this.svc.dashboard();
+    return stats == null ? '—' : this.fmt(stats.windowTotal);
   });
 
   protected readonly errorCount = computed(() => this.count('FAILED') + this.count('DEAD_LETTER'));
@@ -292,10 +294,29 @@ export class DashboardPage implements OnInit {
     return ((this.errorCount() / t) * 100).toFixed(1).replace('.', ',');
   });
 
+  /**
+   * Tranches horaires telles que le serveur les a comptées. Chaque tranche porte son instant
+   * de début : l'heure affichée est celle du poste, sans avoir à supposer le fuseau du
+   * serveur.
+   */
   protected readonly volumeBars = computed(() => {
-    const buckets = hourHistogram(this.svc.activitySample());
-    const max = Math.max(1, ...buckets);
-    return buckets.map((count, hour) => ({ hour, count, pct: Math.max(3, (count / max) * 100) }));
+    const buckets = this.svc.dashboard()?.hourly ?? [];
+    const max = Math.max(1, ...buckets.map((b) => b.count));
+    return buckets.map((b) => ({
+      start: b.bucketStart,
+      label: hourLabel(b.bucketStart),
+      count: b.count,
+      pct: Math.max(3, (b.count / max) * 100),
+    }));
+  });
+
+  /** Graduations de l'axe : début, trois quarts intermédiaires, fin de la fenêtre. */
+  protected readonly axisTicks = computed(() => {
+    const bars = this.volumeBars();
+    if (!bars.length) return [];
+    return [0, 6, 12, 18, bars.length - 1]
+      .filter((i) => i < bars.length)
+      .map((i) => bars[i].label);
   });
 
   protected pct(n: number) { return n.toFixed(1).replace('.', ','); }
@@ -320,35 +341,27 @@ export class DashboardPage implements OnInit {
     return `conic-gradient(${stops})`;
   });
 
+  /** Répartition agrégée en base, donc sur toute la table et non sur un échantillon. */
   protected readonly typeDist = computed(() => {
-    const counts = new Map<string, number>();
-    for (const m of this.svc.activitySample()) {
-      const key = m.messageType || 'INCONNU';
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const max = Math.max(1, ...counts.values());
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, count]) => ({ label, count, pct: (count / max) * 100 }));
+    const types = this.svc.dashboard()?.types ?? [];
+    const max = Math.max(1, ...types.map((t) => t.count));
+    return types.map((t) => ({ label: t.messageType, count: t.count, pct: (t.count / max) * 100 }));
   });
 
   protected readonly retryBuckets = computed(() => {
-    const sample = this.svc.activitySample();
-    const at = (n: number) => sample.filter((m) => (m.retryCount ?? 0) === n).length;
+    const retries = this.svc.dashboard()?.retries;
     return [
-      { label: 'aucune', count: at(0) },
-      { label: '1 essai', count: at(1) },
-      { label: '2 essais', count: at(2) },
-      { label: '3+', count: sample.filter((m) => (m.retryCount ?? 0) >= 3).length },
+      { label: 'aucune', count: retries?.none ?? 0 },
+      { label: '1 essai', count: retries?.one ?? 0 },
+      { label: '2 essais', count: retries?.two ?? 0 },
+      { label: '3+', count: retries?.threeOrMore ?? 0 },
     ];
   });
 
+  /** Les alertes viennent du serveur, trié par réception : plus de tri sur échantillon. */
   protected readonly alerts = computed(() => {
     const now = Date.now();
-    return this.svc.activitySample()
-      .filter((m) => m.status === PaymentMessageStatus.FAILED || m.status === PaymentMessageStatus.DEAD_LETTER)
-      .slice(0, 5)
-      .map((m) => this.toAlert(m, now));
+    return (this.svc.dashboard()?.recentFailures ?? []).map((m) => this.toAlert(m, now));
   });
 
   private toAlert(m: PaymentMessage, now: number) {
@@ -366,4 +379,10 @@ export class DashboardPage implements OnInit {
   }
 
   protected retryFailed() { this.svc.batchRetryFailed(); }
+}
+
+/** Heure locale d'une tranche, telle que l'affiche l'axe (« 14h »). */
+function hourLabel(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : `${String(d.getHours()).padStart(2, '0')}h`;
 }

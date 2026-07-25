@@ -24,6 +24,8 @@ import java.time.OffsetDateTime;
                 @Index(name="idx_pm_received_at", columnList="received_at DESC"),
                 // Couvre à la fois le filtre par statut seul et le couple filtre + tri.
                 @Index(name="idx_pm_status_received_at", columnList="status, received_at DESC"),
+                // Filtre par type (serveur) et liste des types distincts de la barre de filtres.
+                @Index(name="idx_pm_message_type", columnList="message_type"),
                 // Alimente la reprise DLQ (statut DEAD_LETTER sans publication confirmée).
                 @Index(name="idx_pm_status_dlq_published_at", columnList="status, dlq_published_at")
         }

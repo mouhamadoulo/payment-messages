@@ -84,8 +84,10 @@ flowchart LR
 | Méthode | Path | Usage |
 |---|---|---|
 | `POST` | `/api/v1/auth/login` | Obtention du jeton |
-| `GET` | `/api/v1/messages` | Liste paginée avec filtres |
-| `GET` | `/api/v1/messages/stats` | Statistiques par statut |
+| `GET` | `/api/v1/messages` | Liste paginée avec filtres (statut, date, type, recherche) |
+| `GET` | `/api/v1/messages/stats` | Compteurs par statut sous les filtres actifs |
+| `GET` | `/api/v1/messages/stats/dashboard` | Agrégats du dashboard (volume horaire, types, tentatives, alertes) |
+| `GET` | `/api/v1/messages/types` | Types présents en base (sélecteur de la barre de filtres) |
 | `GET` | `/api/v1/messages/{id}` | Détail d'un message (payload inclus) |
 | `GET` | `/api/v1/config` | Configuration MQ non sensible |
 | `DELETE` | `/api/v1/messages/{id}` | Suppression (`ADMIN`) |
@@ -97,3 +99,28 @@ Le sélecteur de statut ne propose que les transitions autorisées (`STATUS_TRAN
 `shared/config/status.config.ts`, recopie de la machine à états du serveur) et recueille un
 motif facultatif. Le serveur reste l'autorité : une transition interdite répond `422`, dont le
 `detail` est affiché tel quel.
+
+---
+
+## 6. Données et réactivité
+
+- **Aucun filtre client.** Statut, date, type et recherche texte partent au serveur, et les
+  compteurs des pastilles sont calculés sous les mêmes critères : une pastille annonce ce que
+  donnerait un clic dessus. Filtrer la page affichée pendant que les compteurs portaient sur
+  toute la table affichait « FAILED 1 240 » puis trois lignes.
+- **Anti-rebond de 250 ms** sur la recherche : une requête par saisie, pas une par frappe.
+- **Le dashboard ne télécharge plus d'échantillon.** Deux appels (`/stats` et
+  `/stats/dashboard`) remplacent le rapatriement de 200 messages complets dont le client
+  recomptait tout : les chiffres portent sur la table entière au lieu d'un échantillon non
+  représentatif.
+- **Requêtes concurrentes annulées.** Chaque flux (liste, compteurs, agrégats) passe par un
+  `Subject` consommé en `switchMap` dans `MessageService` : la requête en vol est annulée dès
+  que la suivante part, donc c'est la dernière page *demandée* qui s'affiche, et non la
+  dernière *arrivée*.
+- **Rafraîchissement périodique** toutes les 30 s (`AUTO_REFRESH_MS`), suspendu quand l'onglet
+  est masqué (`visibilityState`) et rattrapé au retour. La pastille du bandeau le pilote et
+  indique quand l'écran est volontairement figé ; seules les vues déjà chargées sont rejouées.
+  Un rafraîchissement de fond ne repasse pas la vue en squelette.
+- **Tableau ou cartes, jamais les deux.** Le rendu est conditionné par un signal de point de
+  rupture (`BreakpointObserver`, `max-width: 700px`) au lieu d'être masqué en CSS, et la
+  taille formatée de chaque ligne est mémorisée dans un modèle de ligne.

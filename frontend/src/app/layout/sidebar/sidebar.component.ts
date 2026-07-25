@@ -100,8 +100,13 @@ export class SidebarComponent {
   constructor() {
     this.svc.loadConfig();
   }
+  /**
+   * Réception la plus récente : le serveur la calcule sur toute la table
+   * (`lastReceivedAt` des agrégats). Repli sur la liste chargée là où les agrégats ne le
+   * sont pas — l'échantillon de 200 messages qui servait à cela n'existe plus.
+   */
   protected readonly lastReceived = computed(() => {
-    const latest = this.svc.activitySample()[0] ?? this.svc.messages()[0];
-    return latest ? relativeTime(latest.receivedAt) : '—';
+    const latest = this.svc.dashboard()?.lastReceivedAt ?? this.svc.messages()[0]?.receivedAt;
+    return latest ? relativeTime(latest) : '—';
   });
 }
