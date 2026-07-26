@@ -32,6 +32,8 @@ flowchart LR
     API -->|JSON| FRONT
 ```
 
+> Rendu PNG : [architecture-globale-01-vue-ensemble.png](./architecture-globale-01-vue-ensemble.png)
+
 ### Flux principal
 
 1. Les applications **Back Office** déposent des messages JSON dans une file **IBM MQ**
@@ -54,6 +56,8 @@ stateDiagram-v2
     FAILED --> PROCESSED: Résolution manuelle
     FAILED --> DEAD_LETTER: Abandon après max-retries
 ```
+
+> Rendu PNG : [architecture-globale-02-cycle-de-vie.png](./architecture-globale-02-cycle-de-vie.png)
 
 Ces transitions sont les **seules** acceptées : `PUT /{id}/status` confronte toute demande à
 la machine à états (`PaymentMessageStatus`) et refuse le reste en `422`. `PROCESSED` et
@@ -151,6 +155,8 @@ flowchart LR
     BACKEND --> MQ
     FRONTEND -->|proxy /api/| BACKEND
 ```
+
+> Rendu PNG : [architecture-globale-03-deploiement.png](./architecture-globale-03-deploiement.png)
 
 Le démarrage est ordonné par des sondes, pas par un simple `depends_on` : `backend` attend
 `postgres` et `ibm-mq` *sains*, et déclare la sienne sur `/actuator/health/readiness` — le port

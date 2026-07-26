@@ -27,7 +27,7 @@ Le backend est une application **Spring Boot 4.1.0** en **Java 21**. Il assure :
 | Jackson | - | Sérialisation JSON |
 | SpringDoc OpenAPI | 2.8.9 | Documentation API |
 | Spring Boot Actuator | - | Métriques et santé |
-| Flyway | - | Migrations de schéma (`db/migration`) |
+| Flyway | - | Migrations de schéma (`db/migration`), via `spring-boot-flyway` (cf. §6.4) |
 | Caffeine | - | Cache court des statistiques |
 | Micrometer + Prometheus | - | Métriques métier (`/actuator/prometheus`) |
 | Micrometer Tracing (OTel) | - | `traceId`/`spanId` dans les logs |
@@ -128,6 +128,8 @@ flowchart TD
     SERVICE -->|batchRetryFailed| REPO
     SERVICE -->|updateStatus| REPO
 ```
+
+> Rendu PNG : [architecture-backend-01-couches.png](./architecture-backend-01-couches.png)
 
 ---
 
@@ -394,6 +396,18 @@ il énumère les composants et leur état, donc la topologie interne. Le statut 
 aux sondes de l'orchestrateur. Seul le profil `dev` rouvre le détail, pour le diagnostic
 local.
 
+### 6.4 Flyway : deux dépendances, pas une
+
+Spring Boot 4 a sorti l'auto-configuration Flyway de `spring-boot-autoconfigure` pour en faire
+un module à part. `flyway-core` (+ `flyway-database-postgresql`) fournit le moteur, mais tant
+que **`org.springframework.boot:spring-boot-flyway`** n'est pas au classpath, les clés
+`spring.flyway.*` ne se lient à rien : aucune migration n'est jouée, et Hibernate en
+`ddl-auto: validate` refuse de démarrer sur « missing table payment_messages ».
+
+La panne est traître parce qu'elle ne se voit pas en local, où la base porte déjà le schéma :
+elle sort en CI, sur le PostgreSQL vide que démarrent les `*IT`. Les trois dépendances sont
+donc à conserver ensemble dans `backend/pom.xml`.
+
 ---
 
 ## 7. Tests
@@ -405,6 +419,7 @@ local.
 - **RepositoryTest** : couche JPA — projection de liste, pagination keyset, purge
 - **ServiceTest** : logique métier (mocks), idempotence, curseur, lots bornés
 - **BatchRetryServiceTest** : enchaînement des lots, plafond, échec
+- **SimulationServiceTest** : cadence, bornes `max-count`/`max-rate`, envoi unique en vol, `uniqueIds`
 - **DeadLetterDispatcherTest** : publication après commit et confirmation `dlqPublishedAt`
 - **ControllerTest** : endpoints REST (MockMvc), contrat de statut, garde-fous de pagination
 - **HealthProbesTest** : sondes `liveness`/`readiness` consommées par l'orchestrateur

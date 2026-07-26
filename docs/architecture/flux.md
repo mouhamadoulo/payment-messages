@@ -19,6 +19,8 @@ flowchart LR
     API -->|JSON| UI
 ```
 
+> Rendu PNG : [flux-01-vue-ensemble.png](./flux-01-vue-ensemble.png)
+
 ---
 
 ## 2. Cycle de vie d'un message
@@ -34,6 +36,8 @@ stateDiagram-v2
     PROCESSED --> [*]
     DEAD_LETTER --> [*]
 ```
+
+> Rendu PNG : [flux-02-cycle-de-vie.png](./flux-02-cycle-de-vie.png)
 
 ### États
 
@@ -102,6 +106,8 @@ sequenceDiagram
     end
 ```
 
+> Rendu PNG : [flux-03-consommation-mq.png](./flux-03-consommation-mq.png)
+
 L'ingestion est **idempotente sur `messageId`** : une redélivrance ne crée pas de doublon. Le
 contrôle d'existence préalable ne suffit pas à lui seul — deux consommateurs concurrents
 peuvent le passer tous les deux. C'est la contrainte d'unicité en base qui arbitre : la
@@ -142,6 +148,8 @@ sequenceDiagram
     Ctrl-->>UI: { state, sent, published, failed }
 ```
 
+> Rendu PNG : [flux-04-simulation-envoi.png](./flux-04-simulation-envoi.png)
+
 Les compteurs de la tâche portent sur la **publication** (acceptation par le broker), pas sur
 le traitement applicatif : le sort de chaque message se lit dans `GET /api/v1/messages`.
 
@@ -165,8 +173,8 @@ sequenceDiagram
     Controller-->>Client: JSON paginé (payloadSize, pas le payload)
 
     Client->>Controller: GET /api/v1/messages/stats
-    Controller->>Service: getStats()
-    Service->>DB: countByStatus() (JPQL GROUP BY, sauté si le cache messageStats est chaud)
+    Controller->>Service: getStats(MessageQuery.of(null, receivedAfter, type, q))
+    Service->>DB: countByStatus() sans filtre, countByStatusFiltered(...) sinon (JPQL GROUP BY)
     DB-->>Service: List<Object[status, count]>
     Service->>Service: Complète avec tous les statuts (0 si absent)
     Service-->>Controller: Map<PaymentMessageStatus, Long>
@@ -185,6 +193,8 @@ sequenceDiagram
     Controller-->>Client: {"state": "COMPLETED", "processed": 1200}
 ```
 
+> Rendu PNG : [flux-05-api-rest.png](./flux-05-api-rest.png)
+
 ---
 
 ## 5. Flux Docker Compose
@@ -200,6 +210,8 @@ flowchart LR
 
     FRONTEND[Angular<br/>:4200] -->|HTTP| BACKEND
 ```
+
+> Rendu PNG : [flux-06-docker-compose.png](./flux-06-docker-compose.png)
 
 ### Services
 

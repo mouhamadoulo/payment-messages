@@ -45,7 +45,8 @@ services:
       - "9443:9443"
     volumes:
       - mq_data:/mnt/mqm
-      # Cree PAYMENT.REQUEST.QUEUE et PAYMENT.DLQ.QUEUE au demarrage du QM
+      # Cree PAYMENT.REQUEST.QUEUE, PAYMENT.DLQ.QUEUE et PAYMENT.BACKOUT.QUEUE
+      # a la creation du QM (rejouer le script a la main apres modification)
       - ./infra/mq/payment-queues.mqsc:/etc/mqm/payment-queues.mqsc:ro
     healthcheck:
       test: ["CMD-SHELL", "chkmqhealthy"]

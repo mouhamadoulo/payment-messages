@@ -411,7 +411,9 @@ Chaque réponse HTTP porte un `X-Request-Id`, présent dans les lignes de log co
 
 ## Documentation
 
-Toute la documentation technique est dans le dossier [docs/](docs/) :
+Toute la documentation est dans le dossier [docs/](docs/).
+
+### Architecture et contrats
 
 | Sujet | Fichier |
 |---|---|
@@ -422,6 +424,34 @@ Toute la documentation technique est dans le dossier [docs/](docs/) :
 | API REST | [docs/api/api-documentation.md](docs/api/api-documentation.md) |
 | Modèle de données | [docs/database/database-model.md](docs/database/database-model.md) |
 | Configuration IBM MQ | [docs/ibm-mq/ibm-mq-configuration.md](docs/ibm-mq/ibm-mq-configuration.md) |
+
+Les diagrammes des documents d'architecture sont écrits en Mermaid ; leur **rendu PNG** est
+déposé à côté d'eux dans [docs/architecture/](docs/architecture/), pour les lecteurs dont le
+visualiseur Markdown n'exécute pas Mermaid.
+
+### Mécanismes détaillés
+
+| Sujet | Fichier |
+|---|---|
+| Cycle de vie des statuts d'un message | [docs/Statuts-messages.md](docs/Statuts-messages.md) |
+| Dead Letter Queue : rôle, implémentation, reprise | [docs/DLQ.md](docs/DLQ.md) |
+| Le rejeu : bouton « Rejouer » et carte « Tentatives » | [docs/Util-Rejeu.md](docs/Util-Rejeu.md) |
+| L'onglet « Simulation d'envoi » | [docs/Onglet-Sim.md](docs/Onglet-Sim.md) |
+
+### Exploitation et suite
+
+| Sujet | Fichier |
+|---|---|
+| Déploiement | [docs/Deployment.md](docs/Deployment.md) |
+| Axes d'amélioration (audit performance / résilience) | [docs/ameliorations.md](docs/ameliorations.md) |
+| Pitch de présentation, questions d'entretien, perspectives | [docs/Pitch-and-Futur.md](docs/Pitch-and-Futur.md) |
+
+### Guide utilisateur
+
+Parcours fonctionnels écran par écran, captures à l'appui :
+[docs/user-guide/](docs/user-guide/README.md) — tableau de bord, consultation, recherche et
+filtres, détail d'un message, actions (rejeu, statut, suppression), simulation d'envoi,
+préférences d'interface.
 
 ---
 

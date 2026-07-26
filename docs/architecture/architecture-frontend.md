@@ -68,6 +68,8 @@ flowchart LR
     RES_I -->|timeout 15s + rejeu des GET| API[(API)]
 ```
 
+> Rendu PNG : [architecture-frontend-01-acces-api.png](./architecture-frontend-01-acces-api.png)
+
 - **`apiInterceptor`** préfixe toute URL commençant par `/api` avec `API_CONFIG.baseUrl`.
 - **`resilienceInterceptor`** ferme la marche : délai maximal de 15 s et deux rejeux à
   repli exponentiel, **sur `GET`/`HEAD` uniquement** — rejouer un `POST /retry` ou un

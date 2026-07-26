@@ -8,7 +8,7 @@ export const API_CONFIG = {
   messageTypes: '/messages/types',
   batchRetry: '/messages/batch/retry-failed',
   config: '/config',
-  /** bornes et files admises par la simulation d'envoi */
+  /** file visée (affichage seul, jamais un paramètre) et bornes de la simulation d'envoi */
   simulationConfig: '/simulation/config',
   /** dépôt de messages de test : 202 + taskId, suivi sur `/{taskId}` */
   simulationSends: '/simulation/sends'
