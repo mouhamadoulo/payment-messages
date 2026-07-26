@@ -94,29 +94,29 @@ com.bank.paymentmessages
 ## 4. Diagramme de l'architecture backend
 
 ```mermaid
-flowchart TD
+flowchart LR
     MQ[IBM MQ Queue] -->|JMS Listener| LISTENER[PaymentMessageListener]
-    LISTENER -->|Désérialisation JSON| EVENT[PaymentMessageEvent]
-    LISTENER -->|Validation| VALIDATE[Jakarta Validation]
-    VALIDATE -->|Valide| SERVICE[PaymentMessageService]
-    VALIDATE -->|Invalide| LOG[Log erreur]
-    SERVICE -->|saveMessage| MAPPER[PaymentMessageMapper]
-    MAPPER -->|toEntity| ENTITY[PaymentMessage Entity]
-    SERVICE -->|save| REPO[PaymentMessageRepository]
+    LISTENER -->|Désérialisation + Jakarta Validation| OK{Payload lisible<br/>et conforme au contrat ?}
+
+    OK -->|oui| SERVICE[PaymentMessageService]
+    OK -->|non · rejet définitif| REJET[savePermanentFailure<br/>ligne FAILED + payload brut<br/>puis acquittement]
+
+    SERVICE -->|saveMessage| REPO[PaymentMessageRepository]
+    REJET --> REPO
     REPO --> DB[(PostgreSQL)]
 
-    CTRL[PaymentMessageController] -->|GET/POST/PUT/DELETE| SERVICE
-    SERVICE -->|findAll| REPO
-    SERVICE -->|search| REPO
-    SERVICE -->|findById| REPO
-    SERVICE -->|getStats| REPO
-    SERVICE -->|deleteById| REPO
-    SERVICE -->|retry| REPO
-    SERVICE -->|batchRetryFailed| REPO
-    SERVICE -->|updateStatus| REPO
+    SERVICE -.->|erreur transitoire · exception relancée| ROLLBACK[Rollback de session<br/>redélivrance bornée par BOTHRESH]
+    SERVICE -->|DEAD_LETTER · publié après commit| DLQ[[PAYMENT.DLQ.QUEUE]]
+
+    CTRL[PaymentMessageController] -->|lectures et commandes| SERVICE
 ```
 
 > Rendu PNG : [architecture-backend-01-couches.png](./architecture-backend-01-couches.png)
+
+Les deux familles d'erreur ne se confondent pas : un **rejet définitif** (payload illisible,
+validation en échec) devient une ligne `FAILED` porteuse du payload brut, puis le message est
+acquitté ; une **erreur transitoire** laisse remonter l'exception, la session est annulée et le
+broker redélivre. Détail : [flux.md §3](./flux.md#3-ingestion-mq).
 
 ---
 

@@ -58,8 +58,17 @@ faite ici, l'extension n'étant pas garantie disponible et H2 ne sachant pas l'e
 
 ### 2.3 Contraintes
 
-- `UK_message_id` : unicité sur `message_id`
-- `FK` : aucune (table autonome)
+- `UK_message_id` : unicité sur `message_id` — c'est **elle** qui porte l'idempotence de
+  l'ingestion, pas le contrôle d'existence préalable (cf.
+  [flux.md §3](../architecture/flux.md#3-ingestion-mq)) ;
+- `FK` : aucune (table autonome).
+
+> **Les `VARCHAR(255)` sont recopiés dans le contrat d'entrée.** `messageId`, `messageType` et
+> `reference` portent un `@Size(max = 255)` dans `dto/mq/PaymentMessageEvent`, et
+> `PaymentMessageMapper.toFailedEntity` tronque à la même longueur. Sans cette symétrie, une
+> valeur trop longue passe la validation puis casse à l'`INSERT` : la violation d'intégrité est
+> alors indiscernable d'une panne, donc traitée comme transitoire, donc redélivrée en boucle.
+> **Élargir ou réduire une de ces colonnes impose de bouger la contrainte du contrat avec elle.**
 
 ---
 
@@ -172,3 +181,14 @@ GROUP BY extract(hour from p.receivedAt)
 Complété par `GROUP BY p.messageType`, `GROUP BY p.retryCount` (regroupé en 0 / 1 / 2 / 3+
 côté service), `MAX(p.receivedAt)` et les cinq derniers `FAILED` / `DEAD_LETTER`. L'ensemble
 est mis en cache quelques secondes (`STATS_CACHE_TTL`).
+
+---
+
+## 6. Voir aussi
+
+| Sujet | Fichier |
+|---|---|
+| Dépôt et projections de liste | [`architecture-backend.md`](../architecture/architecture-backend.md) §5.3 |
+| Chemins d'ingestion et idempotence | [`flux.md`](../architecture/flux.md#3-ingestion-mq) §3 |
+| Contrat de la file d'entrée | [`ibm-mq-configuration.md`](../ibm-mq/ibm-mq-configuration.md) §4.3 |
+| Contrat REST exposé | [`api-documentation.md`](../api/api-documentation.md) |

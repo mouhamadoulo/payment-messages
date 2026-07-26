@@ -49,6 +49,7 @@ Prérequis : **Java 21**, **Node.js 22**, **Docker Compose**. Sur Windows, `mvnw
 | Brique | Comportement |
 |---|---|
 | **Ingestion** | `@JmsListener`, 5-10 consommateurs, session transactée, idempotence sur `messageId` |
+| **Contrat d'entrée** | validé en profondeur (cascade `@Valid` sur `payment`), tailles bornées sur celles des colonnes |
 | **Erreurs** | définitives → ligne `FAILED` + payload brut ; transitoires → rollback et redélivrance bornée |
 | **Persistance** | PostgreSQL, schéma piloté par Flyway (`ddl-auto: validate`) |
 | **API** | pagination page / curseur, 4 filtres serveur, agrégats SQL cachés, `ETag`, RFC 9457 |
@@ -171,9 +172,12 @@ payment-messages
 | Backend | Frontend | Infra |
 |---|---|---|
 | Java 21 · Spring Boot 4.1.0 | Angular 22 (standalone, zoneless) | Docker · Docker Compose |
-| Spring Data JPA · Spring JMS | Angular Material + CDK 22 | PostgreSQL 18 · IBM MQ 9.4.2 |
-| IBM MQ Client 9.4.2.0 · Flyway | TypeScript 6 · RxJS 7.8 | nginx 1.27-alpine |
-| Actuator · Micrometer · SpringDoc 2.8.9 | Vitest 4 | H2 (tests) |
+| Spring Data JPA · Spring JMS | Angular Material + CDK 22 | PostgreSQL 18 · IBM MQ (image `latest`) |
+| IBM MQ Client 9.4.2.0 · Flyway · Caffeine | TypeScript 6 · RxJS 7.8 | nginx 1.27-alpine · node 22-alpine |
+| Actuator · Micrometer · SpringDoc 2.8.9 | Vitest 4 | H2 · Testcontainers (tests) |
+
+Le **client** IBM MQ est épinglé en 9.4.2.0 (via `mq-jms-spring-boot-starter`) ; l'**image**
+serveur de `docker-compose.yaml` suit `latest`, à figer sur un environnement partagé.
 
 ---
 

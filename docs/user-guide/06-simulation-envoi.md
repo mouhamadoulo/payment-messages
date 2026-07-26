@@ -28,8 +28,9 @@ Sur un environnement où la file porte un vrai flux, l'écran se coupe par confi
 ### File de destination
 
 Champ **en lecture seule**. L'API ne prend pas de destination en paramètre : elle publie sur la
-file d'entrée que l'application consomme (`ibm.mq.queue`, ici `DEV.QUEUE.1`). Elle est affichée
-pour information, jamais choisie.
+file d'entrée que l'application consomme. Le nom affiché est celui que le serveur renvoie
+(`ibm.mq.queue` — `PAYMENT.REQUEST.QUEUE` dans la configuration fournie) : il est là pour
+information, jamais pour être choisi.
 
 ### Modèles de message
 
@@ -53,9 +54,12 @@ tout l'intérêt.
 accompagnent la saisie ; la validité n'est qu'indicative, un payload illisible reste envoyable.
 
 Le contrat de la file d'entrée exige `messageId`, `messageType`, `reference`, `payment` et
-`status`. Attention aux deux pièges de format, qui diffèrent de l'API REST :
-`payment.executionDate` est une date simple (`AAAA-MM-JJ`) et `createdAt` un horodatage **sans
-décalage horaire**.
+`status` — et le bloc `payment` est contrôlé **en profondeur** : `transactionId`, `amount`
+(strictement positif), `currency` et `executionDate` sont tous obligatoires. `messageId`,
+`messageType` et `reference` ne dépassent pas 255 caractères.
+
+Attention aux deux pièges de format, qui diffèrent de l'API REST : `payment.executionDate` est
+une date simple (`AAAA-MM-JJ`) et `createdAt` un horodatage **sans décalage horaire**.
 
 ### Réécrire `messageId` avant publication
 

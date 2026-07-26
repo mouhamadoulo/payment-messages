@@ -617,3 +617,19 @@ trace serveur d'un incident.
 
 Les erreurs qualifiées nativement par Spring (corps illisible, paramètre manquant, méthode
 non supportée, type de média) conservent leur statut d'origine et le même format.
+
+---
+
+## Voir aussi
+
+| Sujet | Fichier |
+|---|---|
+| Contrat de la **file d'entrée** (distinct de celui-ci) | [`ibm-mq-configuration.md`](../ibm-mq/ibm-mq-configuration.md) §4.3 |
+| Jeux de données prêts à déposer sur la file | [`docs/jdd/`](../jdd/README.md) |
+| Collection Postman (38 requêtes, assertions de contrat) | [`docs/postman/`](../postman/README.md) |
+| Couches, transactions et caches | [`architecture-backend.md`](../architecture/architecture-backend.md) |
+| Modèle de données et requêtes | [`database-model.md`](../database/database-model.md) |
+
+> Les deux contrats ne se confondent pas : les horodatages de **cette** API sont des
+> `OffsetDateTime` (décalage horaire obligatoire), alors que la file attend une `LocalDate`
+> pour `payment.executionDate` et une `LocalDateTime` **sans** décalage pour `createdAt`.
