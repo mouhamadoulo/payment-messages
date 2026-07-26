@@ -364,12 +364,28 @@ donc à conserver ensemble dans `backend/pom.xml`.
 
 ## 7. Tests
 
-### 7.1 Deux campagnes
+### 7.1 Tests unitaires et de tranche (Surefire, `*Test`, H2)
 
 **Surefire** exécute les `*Test` sur H2 (`application-test.yaml`), sans service externe.
 **Failsafe** exécute les `*IT` sur des services réels démarrés par Testcontainers. Le nom du fichier
-décide : `*Test` → Surefire, `*IT` → Failsafe. Inventaire des classes : [README](../../README.md)
-(section « Tests et CI »).
+décide : `*Test` → Surefire, `*IT` → Failsafe.
+
+| Classe | Scope |
+|---|---|
+| `PaymentMessagesApplicationTests` | chargement du contexte Spring |
+| `PaymentMessageRepositoryTest` | couche JPA : projection de liste, pagination keyset, purge |
+| `PaymentMessageServiceTest` | logique métier (mocks), idempotence, curseur, lots bornés |
+| `PaymentMessageListenerTest` | erreurs définitives / transitoires, chronomètre, purge du MDC |
+| `BatchRetryServiceTest` | enchaînement des lots, plafond, échec |
+| `SimulationServiceTest` | cadence, bornes `max-count` / `max-rate`, envoi unique en vol, `uniqueIds` |
+| `DeadLetterDispatcherTest` | publication après commit, confirmation `dlqPublishedAt` |
+| `JmsConfigTest` | factory de listeners : session transactée, concurrence |
+| `PaymentMessageControllerTest` | endpoints REST (MockMvc), contrat de statut, garde-fous de pagination |
+| `HealthProbesTest` | sondes `liveness` / `readiness` consommées par l'orchestrateur |
+| `MetricsConfigTest` | `/actuator/prometheus` exposé, `env` absent |
+| `HttpCacheAndCorrelationTest` | `ETag` / `304`, `X-Request-Id` |
+| `PaymentMessageStatusTest` | machine à états : transitions, statuts terminaux |
+| `PaymentMessageMapperTest` | mapping Entity ↔ DTO, calcul de `payloadSize` |
 
 ### 7.2 Tests d'intégration (Failsafe, `*IT`, Testcontainers)
 
