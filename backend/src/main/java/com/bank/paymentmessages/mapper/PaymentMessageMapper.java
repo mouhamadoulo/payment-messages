@@ -69,6 +69,16 @@ public final class PaymentMessageMapper {
     /**
      * Entité représentant un message rejeté définitivement (payload illisible ou
      * validation en échec) : le payload brut est conservé pour permettre le rejeu.
+     * <p>
+     * Les trois identifiants viennent d'un payload non validé — c'est précisément le cas
+     * ici — et sont donc <b>tronqués</b> à la longueur des colonnes. Sans cette coupe, un
+     * message rejeté pour dépassement de taille casserait aussi l'{@code INSERT} de son
+     * propre rejet : l'exception remonterait, la session JMS ferait un rollback et le
+     * message reviendrait en boucle, alors qu'aucun rejeu ne peut le sauver.
+     * <p>
+     * La troncature garde le préfixe, sans suffixe aléatoire : une redélivrance du même
+     * message doit produire le même {@code messageId} pour que l'idempotence le
+     * reconnaisse et l'acquitte, au lieu d'insérer une ligne par tentative.
      */
     public static PaymentMessage toFailedEntity(String messageId, String reference, String messageType,
                                                 String rawPayload, String errorMessage) {
@@ -76,9 +86,9 @@ public final class PaymentMessageMapper {
         OffsetDateTime now = OffsetDateTime.now();
 
         return PaymentMessage.builder()
-                .messageId(messageId)
-                .reference(reference)
-                .messageType(messageType)
+                .messageId(clamp(messageId))
+                .reference(clamp(reference))
+                .messageType(clamp(messageType))
                 .status(PaymentMessageStatus.FAILED)
                 .payload(rawPayload)
                 .payloadSize(payloadSize(rawPayload))
@@ -95,5 +105,12 @@ public final class PaymentMessageMapper {
      */
     private static int payloadSize(String rawPayload) {
         return rawPayload == null ? 0 : rawPayload.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    /** Coupe à la longueur des colonnes texte de {@code payment_messages}. */
+    private static String clamp(String value) {
+        return value == null || value.length() <= PaymentMessageEvent.MAX_LENGTH
+                ? value
+                : value.substring(0, PaymentMessageEvent.MAX_LENGTH);
     }
 }

@@ -1,0 +1,23 @@
+{
+  "messageId": "JDD-SEPA-0001",
+  "messageType": "SEPA_CREDIT_TRANSFER",
+  "reference": "VIR-2026-0726-0001",
+  "payment": {
+    "transactionId": "TX-20260726-000001",
+    "amount": 15750.00,
+    "currency": "EUR",
+    "executionDate": "2026-07-27"
+  },
+  "debtor": {
+    "accountNumber": "FR7630006000011234567890189",
+    "name": "ACME Corp SA",
+    "bankCode": "AGRIFRPP"
+  },
+  "creditor": {
+    "accountNumber": "DE89370400440532013000",
+    "name": "Vinci Construction",
+    "bankCode": "DEUTDEFF"
+  },
+  "status": "RECEIVED",
+  "createdAt": "2026-07-26T09:15:30"
+}

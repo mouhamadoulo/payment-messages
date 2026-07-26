@@ -40,6 +40,14 @@ ligne est écrite en `FAILED` avec son motif, puis acquittée — rien n'est per
 depuis l'API. Une erreur **transitoire** (base indisponible) laisse remonter l'exception : rollback
 de session, redélivrance par le gestionnaire de files dans la limite de `BOTHRESH`/`BOQNAME`.
 
+Cette frontière ne tient que si le contrat refuse tout ce que la base refusera. La validation
+descend donc dans le bloc `payment` (cascade `@Valid` — sans elle, un `payment: {}` ou un montant
+négatif entrait en base) et borne `messageId`, `messageType` et `reference` à la longueur de leurs
+colonnes, 255 caractères. Une valeur plus longue serait sinon acceptée puis cassée à l'`INSERT` :
+une violation d'intégrité que rien ne distingue d'une panne, donc classée *transitoire*, donc
+redélivrée en boucle. Symétriquement, `PaymentMessageMapper.toFailedEntity` tronque ces trois
+identifiants — l'écriture d'un rejet ne doit pas pouvoir échouer sur ce qui a motivé le rejet.
+
 L'idempotence est portée par la **contrainte d'unicité en base**, pas par le contrôle d'existence
 préalable : deux consommateurs concurrents peuvent le passer tous les deux. La
 `DataIntegrityViolationException` est interceptée, le message re-vérifié, et l'insertion comptée

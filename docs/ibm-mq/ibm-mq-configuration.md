@@ -134,7 +134,12 @@ Points clés :
 - **Erreurs transitoires** (base indisponible) : redélivrance, bornée par `BOTHRESH`/`BOQNAME`
 - **Désérialisation** : `JsonMapper` (Jackson 3) auto-configuré par Spring Boot, avec
   `FAIL_ON_UNKNOWN_PROPERTIES` désactivé (tolérance aux champs ajoutés en amont)
-- **Validation** : Jakarta Bean Validation (`@NotBlank`, `@NotNull`, `@Positive`)
+- **Validation** : Jakarta Bean Validation (`@NotBlank`, `@NotNull`, `@Positive`, `@Size`).
+  `payment` porte `@Valid` : sans cette cascade, les contraintes du bloc imbriqué ne seraient
+  pas évaluées et un `payment: {}` ou un montant négatif entrerait en base. `messageId`,
+  `messageType` et `reference` sont bornés à 255 caractères — la longueur des colonnes : une
+  valeur plus longue passerait la validation puis casserait à l'`INSERT`, et cette violation
+  d'intégrité, indiscernable d'une panne, ferait boucler la redélivrance
 - **Métriques** : `payment.mq.messages.rejected`, `payment.mq.messages.duplicates`,
   `payment.mq.listener.rollbacks`, `payment.dlq.publish.failures`
 

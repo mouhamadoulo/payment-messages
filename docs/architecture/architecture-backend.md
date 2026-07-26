@@ -233,7 +233,10 @@ Les méthodes de liste renvoient `PaymentMessageSummary` : Spring Data génère 
 - Concurrence : `spring.jms.listener.min/max-concurrency` (5-10 par défaut, pilotable par environnement)
 - Mode d'acquittement : session **transactée** — un rollback provoque une redélivrance
 - Désérialise le payload JSON en `PaymentMessageEvent` (`JsonMapper` Jackson 3 auto-configuré)
-- Valide avec Jakarta Validation
+- Valide avec Jakarta Validation. La cascade `@Valid` sur `payment` descend dans le bloc
+  imbriqué ; `messageId` / `messageType` / `reference` sont bornés à 255 caractères, la
+  longueur des colonnes — une valeur plus longue serait acceptée puis casserait à l'`INSERT`,
+  en erreur *transitoire*, donc en boucle de redélivrance
 - Persiste via `PaymentMessageService.saveMessage()`, idempotent sur `messageId`
 - **Erreurs définitives** (JSON illisible, validation en échec) : ligne `FAILED` avec le payload
   brut et le motif, puis acquittement — le message reste rejouable
@@ -250,7 +253,11 @@ Classe utilitaire (constructeur privé) :
 - `toEntity(PaymentMessageEvent, String rawPayload)` → `PaymentMessage`, avec calcul de
   `payloadSize` (octets UTF-8) à l'ingestion
 - `toFailedEntity(messageId, reference, messageType, rawPayload, errorMessage)` → `PaymentMessage`
-  en statut `FAILED` (rejet définitif d'un message entrant)
+  en statut `FAILED` (rejet définitif d'un message entrant). Les trois identifiants viennent
+  d'un payload non validé — c'est précisément le cas ici — et sont **tronqués à 255** :
+  sans cette coupe, le rejet d'un message trop long casserait à son tour à l'`INSERT` et
+  reviendrait en boucle. La troncature garde le préfixe, sans suffixe aléatoire, pour qu'une
+  redélivrance retombe sur le même `messageId` et soit reconnue par l'idempotence
 
 ### 5.6 Exception Handler (`GlobalExceptionHandler`)
 
@@ -375,7 +382,7 @@ décide : `*Test` → Surefire, `*IT` → Failsafe.
 | `PaymentMessagesApplicationTests` | chargement du contexte Spring |
 | `PaymentMessageRepositoryTest` | couche JPA : projection de liste, pagination keyset, purge |
 | `PaymentMessageServiceTest` | logique métier (mocks), idempotence, curseur, lots bornés |
-| `PaymentMessageListenerTest` | erreurs définitives / transitoires, chronomètre, purge du MDC |
+| `PaymentMessageListenerTest` | erreurs définitives / transitoires, cascade de validation (`payment` vide, montant négatif, identifiant trop long), chronomètre, purge du MDC |
 | `BatchRetryServiceTest` | enchaînement des lots, plafond, échec |
 | `SimulationServiceTest` | cadence, bornes `max-count` / `max-rate`, envoi unique en vol, `uniqueIds` |
 | `DeadLetterDispatcherTest` | publication après commit, confirmation `dlqPublishedAt` |
@@ -385,7 +392,7 @@ décide : `*Test` → Surefire, `*IT` → Failsafe.
 | `MetricsConfigTest` | `/actuator/prometheus` exposé, `env` absent |
 | `HttpCacheAndCorrelationTest` | `ETag` / `304`, `X-Request-Id` |
 | `PaymentMessageStatusTest` | machine à états : transitions, statuts terminaux |
-| `PaymentMessageMapperTest` | mapping Entity ↔ DTO, calcul de `payloadSize` |
+| `PaymentMessageMapperTest` | mapping Entity ↔ DTO, calcul de `payloadSize`, troncature déterministe des identifiants d'un rejet |
 
 ### 7.2 Tests d'intégration (Failsafe, `*IT`, Testcontainers)
 
@@ -398,7 +405,8 @@ migration cassée passait donc `verify` sans être vue.
   unicité de `message_id`
 - **PaymentMessagePersistenceIT** (PostgreSQL) : insertion concurrente arbitrée par la
   contrainte d'unicité, aller-retour d'horodatage entre fuseaux, parcours complet du
-  curseur, publication DLQ après commit et reprise après refus, rétention
+  curseur, publication DLQ après commit et reprise après refus, rétention, écriture d'un
+  rejet dont les identifiants dépassent la longueur des colonnes
 - **PaymentMessageMqIT** (IBM MQ + PostgreSQL) : ingestion de bout en bout, rejet définitif
   acquitté, redélivrance après rollback de session transactée, idempotence, bascule DLQ
   acceptée par le gestionnaire de files. **Désactivé par défaut** (`-Dmq.it=true`).

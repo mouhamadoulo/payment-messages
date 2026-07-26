@@ -265,6 +265,33 @@ class PaymentMessagePersistenceIT extends AbstractPostgresIT {
         assertThat(repository.findById(failed.getId()).orElseThrow().getDlqPublishedAt()).isNotNull();
     }
 
+    /**
+     * Message empoisonné historique : un {@code messageId} plus long que la colonne passait
+     * la validation, cassait à l'{@code INSERT}, et cette violation d'intégrité — relancée
+     * faute d'être un doublon — était prise pour une panne transitoire, donc redélivrée en
+     * boucle. Le contrat le borne désormais, et l'écriture du rejet tronque à 255 : c'est
+     * cette seconde moitié que ce test vérifie, et elle ne se vérifie que sur un vrai
+     * {@code VARCHAR(255)} — la campagne unitaire travaille sur des dépôts simulés.
+     */
+    @Test
+    void rejectingAnOverlongMessageIdShouldNotBreakOnTheColumnLength() {
+
+        String tropLong = "X".repeat(300);
+
+        assertThat(service.savePermanentFailure(tropLong, tropLong, tropLong, "{}",
+                "Validation en échec : messageId limité à 255 caractères")).isTrue();
+
+        PaymentMessage stored = repository.findAll().getFirst();
+        assertThat(stored.getMessageId()).hasSize(255);
+        assertThat(stored.getStatus()).isEqualTo(PaymentMessageStatus.FAILED);
+
+        // Redélivrance du même message : le même identifiant tronqué, donc un doublon
+        // reconnu et acquitté, au lieu d'une ligne par tentative.
+        assertThat(service.savePermanentFailure(tropLong, tropLong, tropLong, "{}",
+                "Validation en échec : messageId limité à 255 caractères")).isFalse();
+        assertThat(repository.count()).isEqualTo(1);
+    }
+
     /** Rétention : suppression par lots bornés, sans toucher aux autres statuts (D6). */
     @Test
     void retentionShouldOnlyPurgeProcessedRowsOlderThanTheCutoff() {

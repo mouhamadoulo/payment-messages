@@ -80,6 +80,36 @@ class PaymentMessageMapperTest {
         assertThat(entity.getStatus()).isEqualTo(PaymentMessageStatus.FAILED);
     }
 
+    /**
+     * Le rejet d'un message trop long ne doit pas casser à son tour sur la longueur des
+     * colonnes : ce serait une violation d'intégrité, donc une redélivrance en boucle
+     * pour un message qu'aucun rejeu ne peut sauver.
+     */
+    @Test
+    void shouldTruncateOverlongIdentifiersOfRejectedMessage() {
+        String tropLong = "X".repeat(300);
+
+        PaymentMessage entity = PaymentMessageMapper.toFailedEntity(
+                tropLong, tropLong, tropLong, "{}", "Validation en échec");
+
+        assertThat(entity.getMessageId()).hasSize(255).isEqualTo(tropLong.substring(0, 255));
+        assertThat(entity.getReference()).hasSize(255);
+        assertThat(entity.getMessageType()).hasSize(255);
+    }
+
+    /**
+     * Troncature déterministe, sans suffixe aléatoire : une redélivrance du même message
+     * doit retomber sur le même identifiant pour que l'idempotence l'acquitte au lieu
+     * d'insérer une ligne par tentative.
+     */
+    @Test
+    void shouldTruncateDeterministicallySoThatRedeliveryStaysIdempotent() {
+        String tropLong = "X".repeat(300);
+
+        assertThat(PaymentMessageMapper.toFailedEntity(tropLong, "R", "T", "{}", "ko").getMessageId())
+                .isEqualTo(PaymentMessageMapper.toFailedEntity(tropLong, "R", "T", "{}", "ko").getMessageId());
+    }
+
     @Test
     void shouldMapSummaryWithoutPayload() {
         OffsetDateTime receivedAt = OffsetDateTime.of(2026, 7, 23, 10, 0, 0, 0, ZoneOffset.UTC);

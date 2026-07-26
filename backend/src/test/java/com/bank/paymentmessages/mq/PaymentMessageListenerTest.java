@@ -19,10 +19,14 @@ import org.slf4j.MDC;
 import org.springframework.dao.DataAccessResourceFailureException;
 import tools.jackson.databind.json.JsonMapper;
 
+import java.math.BigDecimal;
+import java.time.LocalDate;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -90,6 +94,67 @@ class PaymentMessageListenerTest {
         verify(service, never()).saveMessage(any(), anyString());
         verify(service).savePermanentFailure(eq("uuid-2"), eq("UNKNOWN"), eq("UNKNOWN"),
                 eq(payload), anyString());
+    }
+
+    /**
+     * Sans la cascade {@code @Valid} sur {@code payment}, ce message entrait en base :
+     * les contraintes de {@code Payment} n'étaient jamais évaluées.
+     */
+    @Test
+    void shouldRejectEmptyPaymentBlock() {
+        String payload = """
+                {"messageId":"uuid-vide","messageType":"PAYMENT_REQUEST","reference":"REF-001",
+                 "status":"RECEIVED","payment":{}}
+                """;
+        when(service.savePermanentFailure(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(true);
+
+        listener.receive(payload, JMS_MESSAGE_ID);
+
+        verify(service, never()).saveMessage(any(), anyString());
+        verify(service).savePermanentFailure(eq("uuid-vide"), eq("REF-001"), eq("PAYMENT_REQUEST"),
+                eq(payload), contains("payment.transactionId"));
+    }
+
+    @Test
+    void shouldRejectNegativeAmount() {
+        String payload = """
+                {"messageId":"uuid-neg","messageType":"PAYMENT_REQUEST","reference":"REF-002",
+                 "status":"RECEIVED","payment":{"transactionId":"TX-1","amount":-15750.00,
+                 "currency":"EUR","executionDate":"2026-07-27"}}
+                """;
+        when(service.savePermanentFailure(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(true);
+
+        listener.receive(payload, JMS_MESSAGE_ID);
+
+        verify(service, never()).saveMessage(any(), anyString());
+        verify(service).savePermanentFailure(eq("uuid-neg"), eq("REF-002"), eq("PAYMENT_REQUEST"),
+                eq(payload), contains("amount doit être strictement positif"));
+    }
+
+    /**
+     * Message empoisonné historique : le contrat ne bornait pas la longueur, l'{@code INSERT}
+     * cassait sur {@code VARCHAR(255)} et l'erreur, prise pour transitoire, faisait boucler la
+     * redélivrance. Bornée au contrat, la longueur devient un rejet définitif.
+     */
+    @Test
+    void shouldRejectOverlongIdentifiersInsteadOfLoopingOnInsertFailure() {
+        String tropLong = "X".repeat(300);
+        String payload = """
+                {"messageId":"%s","messageType":"PAYMENT_REQUEST","reference":"REF-003",
+                 "status":"RECEIVED","payment":{"transactionId":"TX-1","amount":10.00,
+                 "currency":"EUR","executionDate":"2026-07-27"}}
+                """.formatted(tropLong);
+        when(service.savePermanentFailure(anyString(), anyString(), anyString(), anyString(), anyString()))
+                .thenReturn(true);
+
+        listener.receive(payload, JMS_MESSAGE_ID);
+
+        verify(service, never()).saveMessage(any(), anyString());
+        verify(service).savePermanentFailure(eq(tropLong), eq("REF-003"), eq("PAYMENT_REQUEST"),
+                eq(payload), contains("messageId limité à 255 caractères"));
+        assertThat(meterRegistry.counter("payment.mq.messages.rejected").count()).isEqualTo(1d);
     }
 
     @Test
@@ -183,8 +248,21 @@ class PaymentMessageListenerTest {
                 .reference("REF-001")
                 .messageType("PAYMENT_REQUEST")
                 .status(PaymentMessageStatus.RECEIVED)
-                .payment(Payment.builder().build())
+                .payment(validPayment())
                 .build();
         return paymentJsonMapper().writeValueAsString(event);
+    }
+
+    /**
+     * Bloc complet : depuis la cascade {@code @Valid}, un {@code Payment} vide fait
+     * échouer la validation du message entier.
+     */
+    private static Payment validPayment() {
+        return Payment.builder()
+                .transactionId("TX-000001")
+                .amount(new BigDecimal("250.00"))
+                .currency("EUR")
+                .executionDate(LocalDate.of(2026, 7, 27))
+                .build();
     }
 }

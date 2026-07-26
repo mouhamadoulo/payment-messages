@@ -1,0 +1,12 @@
+{
+  "messageId": "JDD-MIN-0006",
+  "messageType": "SEPA_CREDIT_TRANSFER",
+  "reference": "VIR-2026-0726-0006",
+  "payment": {
+    "transactionId": "TX-20260726-000006",
+    "amount": 42.00,
+    "currency": "EUR",
+    "executionDate": "2026-07-27"
+  },
+  "status": "RECEIVED"
+}
