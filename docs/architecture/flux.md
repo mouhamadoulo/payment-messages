@@ -2,130 +2,57 @@
 
 ## 1. Vue d'ensemble
 
-```mermaid
-flowchart LR
-    BO[Applications<br/>Back Office] -->|Message JSON| MQ[IBM MQ<br/>Queue Manager]
-
-    MQ -->|Consommation JMS| LISTENER[PaymentMessageListener]
-
-    LISTENER -->|Validation & Mapping| SERVICE[PaymentMessageService]
-
-    SERVICE -->|Persistance| DB[(PostgreSQL)]
-
-    USER[Utilisateur] -->|Consultation| UI[Angular Frontend]
-    UI -->|API REST| API[PaymentMessageController]
-    API -->|Requêtes| SERVICE
-    SERVICE -->|Réponses| API
-    API -->|JSON| UI
-```
-
-> Rendu PNG : [flux-01-vue-ensemble.png](./flux-01-vue-ensemble.png)
+<p align="center">
+  <img src="../images/flux-architecture.svg" alt="Un message JSON part du Back Office vers PAYMENT.REQUEST.QUEUE, est consommé par le listener Spring Boot, persisté en PostgreSQL, puis remonté à l'IHM Angular par l'API REST" width="100%">
+</p>
 
 ---
 
 ## 2. Cycle de vie d'un message
 
-```mermaid
-stateDiagram-v2
-    [*] --> RECEIVED: Message reçu de MQ
-    RECEIVED --> PROCESSED: PUT /{id}/status { "status": "PROCESSED" }
-    RECEIVED --> FAILED: PUT /{id}/status { "status": "FAILED" }
-    FAILED --> RECEIVED: POST /{id}/retry (retryCount <= max-retries)
-    FAILED --> PROCESSED: PUT /{id}/status (résolution manuelle)
-    FAILED --> DEAD_LETTER: POST /{id}/retry (retryCount > max-retries)
-    PROCESSED --> [*]
-    DEAD_LETTER --> [*]
-```
+<p align="center">
+  <img src="../images/cycle-de-vie-message.svg" alt="RECEIVED est l'état initial ; PUT /status mène à PROCESSED ou FAILED ; POST /retry rejoue un FAILED tant que retryCount reste sous max-retries, au-delà le message part en DEAD_LETTER" width="100%">
+</p>
 
-> Rendu PNG : [flux-02-cycle-de-vie.png](./flux-02-cycle-de-vie.png)
+| Statut | Description | Déclencheur |
+|---|---|---|
+| `RECEIVED` | Persisté, en attente de traitement | listener (seul état automatique) |
+| `PROCESSED` | Traité avec succès — terminal | `PUT /{id}/status` |
+| `FAILED` | Erreur technique ou métier, payload brut conservé | `PUT /{id}/status`, ou rejet définitif à l'ingestion |
+| `DEAD_LETTER` | Abandonné après `ibm.mq.max-retries`, payload republié sur la DLQ — terminal | `POST /{id}/retry` |
 
-### États
-
-| Statut | Description |
-|---|---|
-| `RECEIVED` | Message reçu de la file MQ et persisté, en attente de traitement |
-| `PROCESSED` | Traitement terminé avec succès (état terminal) |
-| `FAILED` | Erreur technique ou métier, rejouable via `/retry` |
-| `DEAD_LETTER` | Abandonné après `ibm.mq.max-retries` tentatives, payload republié sur la DLQ (état terminal) |
-
-> Aucune transition n'est automatique : le listener ne pose que l'état initial `RECEIVED`.
-> `PROCESSED` et `FAILED` sont pilotés par `PUT /{id}/status`, `RECEIVED`/`DEAD_LETTER` par `/retry`.
->
-> Ce graphe est **appliqué** par le serveur : `PUT /{id}/status` confronte la demande à
-> `PaymentMessageStatus.canTransitionTo(...)` et refuse toute autre transition en `422`
-> (`RECEIVED → DEAD_LETTER` sans tentative, sortie d'un statut terminal…). Un statut identique
-> à l'actuel est accepté sans effet. La reprise d'un `DEAD_LETTER` passe par la Dead Letter
-> Queue, pas par un retour en base.
+Le serveur confronte chaque demande à `PaymentMessageStatus.canTransitionTo(...)` et refuse le reste
+en `422` (`RECEIVED → DEAD_LETTER` sans tentative, sortie d'un statut terminal…). Un statut identique
+à l'actuel est accepté sans effet. La reprise d'un `DEAD_LETTER` passe par la Dead Letter Queue, pas
+par un retour en base.
 
 ---
 
-## 3. Flux détaillé : consommation MQ
+## 3. Ingestion MQ
 
-La session JMS est **transactée** : c'est ce qui sépare les deux familles d'erreurs. Une erreur
-**définitive** (JSON illisible, validation en échec) ne sera pas résolue par une redélivrance —
-le message est persisté en `FAILED` avec son payload brut et son motif, puis acquitté : rien
-n'est perdu, la ligne reste rejouable depuis l'API. Une erreur **transitoire** (base
-indisponible) laisse l'exception remonter : la session effectue un rollback et le gestionnaire
-de files redélivre, dans la limite de `BOTHRESH`/`BOQNAME`.
+<p align="center">
+  <img src="../images/ingestion-mq.svg" alt="Trois issues : un message valide est persisté en RECEIVED puis acquitté ; une erreur définitive est persistée en FAILED avec son payload brut puis acquittée ; une erreur transitoire provoque un rollback de session et une redélivrance bornée par BOTHRESH" width="100%">
+</p>
 
-```mermaid
-sequenceDiagram
-    participant BO as Back Office
-    participant MQ as IBM MQ
-    participant Listener as PaymentMessageListener
-    participant Service as PaymentMessageService
-    participant DB as PostgreSQL
+La session JMS **transactée** est ce qui sépare les deux familles d'erreurs. Une erreur
+**définitive** (JSON illisible, validation en échec) ne serait pas résolue par une redélivrance : la
+ligne est écrite en `FAILED` avec son motif, puis acquittée — rien n'est perdu, tout reste rejouable
+depuis l'API. Une erreur **transitoire** (base indisponible) laisse remonter l'exception : rollback
+de session, redélivrance par le gestionnaire de files dans la limite de `BOTHRESH`/`BOQNAME`.
 
-    BO->>MQ: PUT message JSON
-    MQ->>Listener: JMS Message (String payload)
-    Listener->>Listener: Désérialisation JSON → PaymentMessageEvent
-    Listener->>Listener: Validation (Jakarta Validation)
-
-    alt Message valide
-        Listener->>Service: saveMessage(event, rawPayload)
-        Service->>Service: Mapper.toEntity(event, rawPayload)
-        Service->>DB: existsByMessageId(...)
-        alt messageId inconnu
-            Service->>DB: INSERT INTO payment_messages
-            DB-->>Service: ligne créée (statut RECEIVED)
-            Service-->>Listener: true
-            Listener->>Listener: compteur payment.mq.messages.received, acquittement
-        else messageId déjà présent (redélivrance)
-            Service-->>Listener: false
-            Listener->>Listener: compteur payment.mq.messages.duplicates, acquittement
-        end
-    else Erreur définitive (JSON illisible ou validation en échec)
-        Listener->>Service: savePermanentFailure(ids, payload, motif)
-        Service->>DB: INSERT ligne FAILED (payload brut + errorMessage)
-        Service-->>Listener: true
-        Listener->>Listener: compteur payment.mq.messages.rejected, acquittement
-    else Erreur transitoire (base indisponible…)
-        Listener->>MQ: exception relancée → rollback de session
-        MQ->>Listener: redélivrance (jusqu'à BOTHRESH, puis BOQNAME)
-        Listener->>Listener: compteur payment.mq.listener.rollbacks
-    end
-```
-
-> Rendu PNG : [flux-03-consommation-mq.png](./flux-03-consommation-mq.png)
-
-L'ingestion est **idempotente sur `messageId`** : une redélivrance ne crée pas de doublon. Le
-contrôle d'existence préalable ne suffit pas à lui seul — deux consommateurs concurrents
-peuvent le passer tous les deux. C'est la contrainte d'unicité en base qui arbitre : la
-`DataIntegrityViolationException` est interceptée, le message re-vérifié, et l'insertion
-comptée comme un doublon plutôt que relancée. `saveMessage` s'exécute d'ailleurs en
-`Propagation.NOT_SUPPORTED` pour que cette violation reste confinée à la transaction interne
-de `repository.save`, sans empoisonner une transaction englobante.
-
-Le chronomètre `payment.mq.processing` est étiqueté par issue (`persisted`, `duplicate`,
-`rejected`, `error`).
+L'idempotence est portée par la **contrainte d'unicité en base**, pas par le contrôle d'existence
+préalable : deux consommateurs concurrents peuvent le passer tous les deux. La
+`DataIntegrityViolationException` est interceptée, le message re-vérifié, et l'insertion comptée
+comme doublon. `saveMessage` s'exécute en `Propagation.NOT_SUPPORTED` pour que cette violation reste
+confinée à la transaction interne de `repository.save`.
 
 ---
 
-## 3 bis. Flux détaillé : simulation d'envoi
+## 4. Simulation d'envoi
 
-L'onglet « Simulation d'envoi » tient le rôle du back-office : il **publie sur la file
-d'entrée** et n'écrit rien en base. Le message revient donc par le flux ci-dessus, avec la même
-désérialisation, la même validation et les mêmes rejets.
+L'onglet « Simulation d'envoi » tient le rôle du back-office : il **publie sur la file d'entrée** et
+n'écrit rien en base. Le message revient donc par le flux du §3, avec la même désérialisation, la
+même validation et les mêmes rejets.
 
 ```mermaid
 sequenceDiagram
@@ -150,12 +77,12 @@ sequenceDiagram
 
 > Rendu PNG : [flux-04-simulation-envoi.png](./flux-04-simulation-envoi.png)
 
-Les compteurs de la tâche portent sur la **publication** (acceptation par le broker), pas sur
-le traitement applicatif : le sort de chaque message se lit dans `GET /api/v1/messages`.
+Les compteurs de la tâche portent sur la **publication** (acceptation par le broker), pas sur le
+traitement applicatif : le sort de chaque message se lit dans `GET /api/v1/messages`.
 
 ---
 
-## 4. Flux détaillé : API REST
+## 5. API REST
 
 ```mermaid
 sequenceDiagram
@@ -168,25 +95,21 @@ sequenceDiagram
     Controller->>Service: search(MessageQuery.of(FAILED, null, null, null), pageable)
     Service->>DB: search(...) — prédicat FILTERS, countQuery explicite
     DB-->>Service: Page<PaymentMessageSummary> (projection, sans payload)
-    Service->>Service: toSummaryDto() sur chaque ligne
     Service-->>Controller: Page<PaymentMessageSummaryDto>
     Controller-->>Client: JSON paginé (payloadSize, pas le payload)
 
     Client->>Controller: GET /api/v1/messages/stats
     Controller->>Service: getStats(MessageQuery.of(null, receivedAfter, type, q))
-    Service->>DB: countByStatus() sans filtre, countByStatusFiltered(...) sinon (JPQL GROUP BY)
-    DB-->>Service: List<Object[status, count]>
-    Service->>Service: Complète avec tous les statuts (0 si absent)
-    Service-->>Controller: Map<PaymentMessageStatus, Long>
-    Controller-->>Client: {"RECEIVED": 15, "PROCESSED": 42, ...}
+    Service->>DB: countByStatus(), ou countByStatusFiltered(...) sous filtres (JPQL GROUP BY)
+    Service->>Service: complète les statuts absents à 0
+    Controller-->>Client: {"RECEIVED": 15, "PROCESSED": 42, …}
 
     Client->>Controller: POST /api/v1/messages/batch/retry-failed
     Controller->>Service: BatchRetryService.start()
-    Service-->>Controller: BatchRetryTask (RUNNING)
     Controller-->>Client: 202 Accepted {"taskId": "…", "state": "RUNNING"}
     loop tant qu'un lot est plein
-        Service->>DB: findAllByStatus(FAILED, PageRequest(0,500))
-        Service->>Service: Pour chaque → retryCount+1, RECEIVED (ou DEAD_LETTER + événement DLQ)
+        Service->>DB: findAllByStatus(FAILED, PageRequest(0, 500))
+        Service->>Service: retryCount+1 → RECEIVED, ou DEAD_LETTER + événement DLQ
         Service->>DB: saveAll(lot)
     end
     Client->>Controller: GET /api/v1/messages/batch/retry-failed/{taskId}
@@ -197,28 +120,8 @@ sequenceDiagram
 
 ---
 
-## 5. Flux Docker Compose
+## 6. Docker Compose
 
-```mermaid
-flowchart LR
-    COMPOSE[docker compose up -d] --> POSTGRES[postgres:18<br/>:5432]
-    COMPOSE --> PGADMIN[dpage/pgadmin4<br/>:5050]
-    COMPOSE --> IBM_MQ[icr.io/ibm-messaging/mq<br/>:1414 / :9443]
-
-    BACKEND[Spring Boot<br/>:8080] -->|JDBC| POSTGRES
-    BACKEND -->|JMS| IBM_MQ
-
-    FRONTEND[Angular<br/>:4200] -->|HTTP| BACKEND
-```
-
-> Rendu PNG : [flux-06-docker-compose.png](./flux-06-docker-compose.png)
-
-### Services
-
-| Service | Image | Ports | Dépend |
-|---|---|---|---|
-| PostgreSQL | postgres:18 | 5432 | - |
-| pgAdmin | dpage/pgadmin4 | 5050 | postgres |
-| IBM MQ | icr.io/ibm-messaging/mq | 1414, 9443 | - |
-| Backend | build local | 8080 | postgres, ibm-mq |
-| Frontend | build local | 4200 | backend |
+<p align="center">
+  <img src="../images/deploiement-compose.svg" alt="docker compose démarre postgres, ibm-mq et pgadmin ; le backend attend leurs sondes puis publie la sienne sur /actuator/health/readiness ; le frontend nginx attend le backend et relaie /api vers lui" width="100%">
+</p>

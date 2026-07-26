@@ -13,24 +13,11 @@ Le backend est une application **Spring Boot 4.1.0** en **Java 21**. Il assure :
 
 ## 2. Stack technique
 
-| Technologie | Version | Rôle |
-|---|---|---|
-| Java | 21 | Langage |
-| Spring Boot | 4.1.0 | Framework |
-| Spring Data JPA | - | Accès base de données |
-| Spring Validation | - | Validation des entrées |
-| Spring JMS | - | Consommation files MQ |
-| IBM MQ Client | 9.4.2.0 | Client IBM MQ |
-| PostgreSQL | 18 | Base de données |
-| H2 | - | Base de test (embarquée) |
-| Lombok | - | Boilerplate |
-| Jackson | - | Sérialisation JSON |
-| SpringDoc OpenAPI | 2.8.9 | Documentation API |
-| Spring Boot Actuator | - | Métriques et santé |
-| Flyway | - | Migrations de schéma (`db/migration`), via `spring-boot-flyway` (cf. §6.4) |
-| Caffeine | - | Cache court des statistiques |
-| Micrometer + Prometheus | - | Métriques métier (`/actuator/prometheus`) |
-| Micrometer Tracing (OTel) | - | `traceId`/`spanId` dans les logs |
+Versions dans le [README](../../README.md) (section « Stack »). Trois choix qui pèsent sur le code :
+
+- **Flyway** possède le schéma (`db/migration`), Hibernate est en `ddl-auto: validate` — cf. §6.4 ;
+- **Caffeine** porte le cache court des agrégats de lecture (`STATS_CACHE_TTL`) ;
+- **Micrometer + Prometheus** exposent les métriques métier, alimentées par les compteurs du flux.
 
 ---
 
@@ -340,47 +327,12 @@ collecteur.
 
 ### 6.2 Variables d'environnement
 
-| Variable | Description |
-|---|---|
-| `DB_URL` | URL JDBC PostgreSQL |
-| `DB_USER` | Utilisateur base |
-| `DB_PASSWORD` | Mot de passe base |
-| `JPA_DDL_AUTO` | Stratégie DDL — `validate` désormais, le schéma étant géré par Flyway |
-| `MQ_QMGR` | Queue Manager IBM MQ |
-| `MQ_CHANNEL` | Channel de connexion |
-| `MQ_CONN_NAME` | Hôte et port du serveur MQ |
-| `MQ_USER` | Utilisateur MQ |
-| `MQ_PASSWORD` | Mot de passe MQ |
-| `MQ_QUEUE` | File à écouter |
-| `MQ_DLQ_QUEUE` | Dead Letter Queue applicative |
-| `MQ_MAX_RETRIES` | Nombre de rejeux avant `DEAD_LETTER` |
-| `SERVER_PORT` | Port du serveur |
+`application.yaml` n'est qu'un jeu de placeholders : la liste complète, requises et optionnelles
+avec leurs valeurs par défaut, est dans le [README](../../README.md) (section « Configuration »).
 
-Variables optionnelles :
-
-| Variable | Défaut | Description |
-|---|---|---|
-| `MQ_MIN_CONCURRENCY` / `MQ_MAX_CONCURRENCY` | `5` / `10` | Consommateurs JMS |
-| `DB_POOL_MAX_SIZE` / `DB_POOL_MIN_IDLE` | `20` / `5` | HikariCP, à tenir ≥ `MQ_MAX_CONCURRENCY` + threads HTTP |
-| `MQ_DLQ_RECOVERY_ENABLED` | `true` | Reprise planifiée des `DEAD_LETTER` non republiés |
-| `MQ_DLQ_RECOVERY_INTERVAL` | `60000` | Période de la reprise (ms) |
-| `MQ_DLQ_RECOVERY_BATCH_SIZE` | `100` | Taille de lot de la reprise |
-| `FLYWAY_ENABLED` | `true` | Migrations de schéma au démarrage |
-| `STATS_CACHE_TTL` | `15s` | Durée de vie des caches de lecture (`/stats`, `/stats/dashboard`, `/types`) et du `Cache-Control` correspondant |
-| `BATCH_RETRY_SIZE` | `500` | Taille de lot du rejeu massif |
-| `BATCH_RETRY_MAX` | `100000` | Plafond de sécurité d'un rejeu massif |
-| `SIMULATION_ENABLED` | `true` | Simulation d'envoi. À passer à `false` là où la file d'entrée porte un vrai flux : l'API répond alors `503` |
-| `SIMULATION_MAX_COUNT` | `1000` | Nombre maximal de messages par envoi de test |
-| `SIMULATION_MAX_RATE` | `200` | Cadence maximale d'un envoi de test (msg/s) |
-| `RETENTION_ENABLED` | `false` | Purge planifiée des `PROCESSED` |
-| `RETENTION_PROCESSED_DAYS` | `90` | Âge au-delà duquel un `PROCESSED` est purgeable |
-| `RETENTION_BATCH_SIZE` / `RETENTION_MAX_PER_RUN` | `500` / `50000` | Bornes de la purge |
-| `RETENTION_CRON` | `0 30 3 * * *` | Déclenchement de la purge |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:4200` | Origines CORS autorisées sur `/api/**` |
-| `MAX_PAGE_SIZE` | `200` | Borne haute de pagination |
-| `REQUEST_TIMEOUT` | `15s` | Délai maximal d'une requête asynchrone |
-| `CONNECTION_TIMEOUT` | `5s` | Délai d'établissement de connexion Tomcat |
-| `MANAGEMENT_PORT` | *(vide)* | Déplace l'actuator sur un port dédié, à réserver au réseau interne |
+Deux règles à ne pas perdre de vue : `DB_POOL_MAX_SIZE` doit rester ≥ `MQ_MAX_CONCURRENCY` +
+threads HTTP, et `STATS_CACHE_TTL` pilote à la fois les caches serveur et le `Cache-Control`
+renvoyé — les deux doivent rester égaux.
 
 ### 6.3 Actuator
 
@@ -412,22 +364,12 @@ donc à conserver ensemble dans `backend/pom.xml`.
 
 ## 7. Tests
 
-### 7.1 Tests unitaires et de tranche (Surefire, `*Test`, H2)
+### 7.1 Deux campagnes
 
-- **ApplicationTests** : chargement du contexte Spring
-- **JmsConfigTest** : factory de listeners (session transactée, concurrence)
-- **RepositoryTest** : couche JPA — projection de liste, pagination keyset, purge
-- **ServiceTest** : logique métier (mocks), idempotence, curseur, lots bornés
-- **BatchRetryServiceTest** : enchaînement des lots, plafond, échec
-- **SimulationServiceTest** : cadence, bornes `max-count`/`max-rate`, envoi unique en vol, `uniqueIds`
-- **DeadLetterDispatcherTest** : publication après commit et confirmation `dlqPublishedAt`
-- **ControllerTest** : endpoints REST (MockMvc), contrat de statut, garde-fous de pagination
-- **HealthProbesTest** : sondes `liveness`/`readiness` consommées par l'orchestrateur
-- **MetricsConfigTest** : `/actuator/prometheus` exposé, `env` absent
-- **HttpCacheAndCorrelationTest** : `ETag`/`304`, `X-Request-Id`
-- **PaymentMessageStatusTest** : machine à états (transitions, statuts terminaux)
-- **ListenerTest** : erreurs définitives / transitoires, chronomètre, purge du MDC
-- **MapperTest** : mapping Entity ↔ DTO, calcul de `payloadSize`
+**Surefire** exécute les `*Test` sur H2 (`application-test.yaml`), sans service externe.
+**Failsafe** exécute les `*IT` sur des services réels démarrés par Testcontainers. Le nom du fichier
+décide : `*Test` → Surefire, `*IT` → Failsafe. Inventaire des classes : [README](../../README.md)
+(section « Tests et CI »).
 
 ### 7.2 Tests d'intégration (Failsafe, `*IT`, Testcontainers)
 

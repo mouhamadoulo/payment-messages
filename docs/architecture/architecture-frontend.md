@@ -9,15 +9,10 @@ routes entièrement paresseuses (`loadComponent`), état en **signaux**, mode *z
 
 ## 2. Stack technique
 
-| Technologie | Version | Rôle |
-|---|---|---|
-| Angular | 22 | Framework |
-| TypeScript | 6 | Langage |
-| RxJS | 7.8 | Programmation réactive |
-| Angular Material + CDK | 22 | Dialogues, snackbar, sélecteurs |
-| Vitest | 4 | Tests unitaires |
-| Prettier | 3.8 | Formateur de code |
-| SCSS | - | Préprocesseur CSS |
+Versions dans le [README](../../README.md) (section « Stack »). Trois contraintes structurantes :
+composants tous en `OnPush` et état en **signaux** ; **aucun moteur d'animation** (`@angular/animations`
+n'est pas une dépendance, tout est en CSS) ; `inlineCritical: false` dans `angular.json`, condition du
+`script-src 'self'` de la CSP (cf. §9.3).
 
 ---
 
@@ -86,21 +81,9 @@ appels directs au port de l'API.
 
 ## 5. Endpoints consommés
 
-| Méthode | Path | Usage |
-|---|---|---|
-| `GET` | `/api/v1/messages` | Liste paginée avec filtres (statut, date, type, recherche) |
-| `GET` | `/api/v1/messages/stats` | Compteurs par statut sous les filtres actifs |
-| `GET` | `/api/v1/messages/stats/dashboard` | Agrégats du dashboard (volume horaire, types, tentatives, alertes) |
-| `GET` | `/api/v1/messages/types` | Types présents en base (sélecteur de la barre de filtres) |
-| `GET` | `/api/v1/messages/{id}` | Détail d'un message (payload inclus) |
-| `GET` | `/api/v1/config` | Configuration MQ non sensible |
-| `GET` | `/api/v1/simulation/config` | File visée et bornes de la simulation d'envoi |
-| `GET` | `/api/v1/simulation/sends/{taskId}` | Avancement d'un envoi de test |
-| `DELETE` | `/api/v1/messages/{id}` | Suppression |
-| `POST` | `/api/v1/messages/batch/retry-failed` | Rejeu massif, suivi par `taskId` |
-| `POST` | `/api/v1/messages/{id}/retry` | Rejeu individuel |
-| `POST` | `/api/v1/simulation/sends` | Dépôt de messages de test, suivi par `taskId` |
-| `PUT` | `/api/v1/messages/{id}/status` | Changement de statut, corps `{ status, reason }` |
+Les endpoints appelés sont ceux du [contrat REST](../api/api-documentation.md), à deux
+exceptions près : `GET /messages/cursor` (le tableau reste en pagination par page) et
+`GET /messages/batch/retry-failed/{taskId}` n'est lu que pendant un rejeu massif.
 
 Le sélecteur de statut ne propose que les transitions autorisées (`STATUS_TRANSITIONS` dans
 `shared/config/status.config.ts`, recopie de la machine à états du serveur) et recueille un

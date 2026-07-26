@@ -1,0 +1,113 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 540" width="1200" height="540" role="img" aria-label="Ingestion MQ : trois issues possibles, message valide, erreur definitive, erreur transitoire">
+<title>Ingestion MQ &#8212; les trois issues d une r&#233;ception</title>
+<desc>La session JMS est transactee. Un message valide est persiste en RECEIVED puis acquitte. Une erreur definitive (JSON illisible ou validation en echec) est persistee en FAILED avec son payload brut puis acquittee. Une erreur transitoire laisse remonter l exception : la session effectue un rollback et le gestionnaire de files redelivre jusqu a BOTHRESH, puis ecarte le message vers la file de backout.</desc>
+<defs>
+<linearGradient id="bg2" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#fbfcfe"/><stop offset="1" stop-color="#eaeff5"/></linearGradient>
+<pattern id="g2" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#4a6b8c" stroke-opacity="0.07" stroke-width="1"/></pattern>
+</defs>
+<rect width="1200" height="540" fill="url(#bg2)"/><rect width="1200" height="540" fill="url(#g2)"/>
+
+<text x="34" y="42" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#1a2733">Ingestion MQ &#8212; les trois issues d&#8217;une r&#233;ception</text>
+<text x="34" y="63" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="600" fill="#0e7fb8" letter-spacing="1.4">SESSION JMS TRANSACT&#201;E &#183; IDEMPOTENCE SUR messageId &#183; RIEN N&#8217;EST PERDU</text>
+
+<g text-anchor="end" font-family="system-ui, sans-serif" font-size="13" fill="#41505f">
+<text x="1166" y="52" opacity="1">L&#8217;acquittement ne vient qu&#8217;apr&#232;s une &#233;criture r&#233;ussie<animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.02;0.30;0.33;1" values="1;1;1;0;0"/></text>
+<text x="1166" y="52" opacity="0">Une red&#233;livrance ne r&#233;soudrait rien : la ligne est &#233;crite, puis acquitt&#233;e<animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.33;0.36;0.63;0.66;1" values="0;0;1;1;0;0"/></text>
+<text x="1166" y="52" opacity="0">L&#8217;exception remonte : c&#8217;est au gestionnaire de files de rejouer<animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.66;0.69;0.97;0.995;1" values="0;0;1;1;0;0"/></text>
+</g>
+
+<g opacity="1">
+<animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.02;0.30;0.33;1" values="1;1;1;0.3;0.3"/>
+<rect x="34" y="150" width="150" height="54" rx="10" fill="#E2F2E8" stroke="#27794C" stroke-opacity="0.5"/>
+<text x="109" y="172" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="600" fill="#27794C">MESSAGE VALIDE</text>
+<text x="109" y="190" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#3d6650">cas nominal</text>
+<g fill="#ffffff" stroke="#27794C" stroke-opacity="0.4">
+<rect x="200" y="150" width="140" height="54" rx="10"/><rect x="372" y="150" width="140" height="54" rx="10"/><rect x="544" y="150" width="140" height="54" rx="10"/><rect x="716" y="150" width="140" height="54" rx="10"/><rect x="888" y="150" width="140" height="54" rx="10" fill="#E2F2E8"/>
+</g>
+<g text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#1a2733">
+<text x="270" y="172">r&#233;ception JMS</text><text x="270" y="190" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">session transact&#233;e</text>
+<text x="442" y="172">d&#233;s&#233;rialisation</text><text x="442" y="190" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">JSON &#8594; Event</text>
+<text x="614" y="172">validation OK</text><text x="614" y="190" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">jakarta.validation</text>
+<text x="786" y="172">saveMessage</text><text x="786" y="190" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">NOT_SUPPORTED</text>
+<text x="958" y="172" font-weight="600" fill="#27794C">RECEIVED + ack</text><text x="958" y="190" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#3d6650">doublon &#8594; ack aussi</text>
+</g>
+<g fill="none" stroke="#27794C" stroke-opacity="0.55" stroke-width="1.6">
+<path d="M344 177H364"/><path d="M516 177H536"/><path d="M688 177H708"/><path d="M860 177H880"/>
+</g>
+<g fill="#27794C">
+<polygon points="370,177 360,172 360,182"/><polygon points="542,177 532,172 532,182"/><polygon points="714,177 704,172 704,182"/><polygon points="886,177 876,172 876,182"/>
+</g>
+<text x="1028" y="222" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#3d6650">payment.mq.messages.received &#183; .duplicates</text>
+</g>
+
+<g opacity="0.3">
+<animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.33;0.36;0.63;0.66;1" values="0.3;0.3;1;1;0.3;0.3"/>
+<rect x="34" y="272" width="150" height="54" rx="10" fill="#F8E6E6" stroke="#B53535" stroke-opacity="0.5"/>
+<text x="109" y="294" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="600" fill="#B53535">ERREUR D&#201;FINITIVE</text>
+<text x="109" y="312" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#7a4141">non rejouable en l&#8217;&#233;tat</text>
+<g fill="#ffffff" stroke="#B53535" stroke-opacity="0.4">
+<rect x="200" y="272" width="140" height="54" rx="10"/><rect x="372" y="272" width="140" height="54" rx="10"/><rect x="544" y="272" width="140" height="54" rx="10"/><rect x="716" y="272" width="140" height="54" rx="10"/><rect x="888" y="272" width="140" height="54" rx="10" fill="#F8E6E6"/>
+</g>
+<g text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#1a2733">
+<text x="270" y="294">r&#233;ception JMS</text><text x="270" y="312" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">session transact&#233;e</text>
+<text x="442" y="294" fill="#B53535">JSON illisible</text><text x="442" y="312" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#a3706f">ou validation KO</text>
+<text x="614" y="294">savePermanentFailure</text><text x="614" y="312" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">payload + motif</text>
+<text x="786" y="294" font-weight="600" fill="#B53535">ligne FAILED</text><text x="786" y="312" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#a3706f">errorMessage</text>
+<text x="958" y="294" font-weight="600" fill="#B53535">ack</text><text x="958" y="312" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#a3706f">rejouable depuis l&#8217;API</text>
+</g>
+<g fill="none" stroke="#B53535" stroke-opacity="0.55" stroke-width="1.6">
+<path d="M344 299H364"/><path d="M516 299H536"/><path d="M688 299H708"/><path d="M860 299H880"/>
+</g>
+<g fill="#B53535">
+<polygon points="370,299 360,294 360,304"/><polygon points="542,299 532,294 532,304"/><polygon points="714,299 704,294 704,304"/><polygon points="886,299 876,294 876,304"/>
+</g>
+<text x="1028" y="344" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#8f4a4a">payment.mq.messages.rejected</text>
+</g>
+
+<g opacity="0.3">
+<animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.66;0.69;0.97;0.995;1" values="0.3;0.3;1;1;0.3;0.3"/>
+<rect x="34" y="394" width="150" height="54" rx="10" fill="#FBF1E0" stroke="#b0721c" stroke-opacity="0.5"/>
+<text x="109" y="416" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="600" fill="#8f5c14">ERREUR TRANSITOIRE</text>
+<text x="109" y="434" text-anchor="middle" font-family="system-ui, sans-serif" font-size="10" fill="#7a6440">base indisponible&#8230;</text>
+<g fill="#ffffff" stroke="#b0721c" stroke-opacity="0.4">
+<rect x="200" y="394" width="140" height="54" rx="10"/><rect x="372" y="394" width="140" height="54" rx="10"/><rect x="544" y="394" width="140" height="54" rx="10"/><rect x="716" y="394" width="140" height="54" rx="10"/><rect x="888" y="394" width="140" height="54" rx="10" fill="#FBF1E0"/>
+</g>
+<g text-anchor="middle" font-family="system-ui, sans-serif" font-size="11" fill="#1a2733">
+<text x="270" y="416">r&#233;ception JMS</text><text x="270" y="434" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">session transact&#233;e</text>
+<text x="442" y="416" fill="#8f5c14">&#233;criture impossible</text><text x="442" y="434" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#8a7350">timeout, panne</text>
+<text x="614" y="416">exception relanc&#233;e</text><text x="614" y="434" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">aucun ack</text>
+<text x="786" y="416" font-weight="600" fill="#8f5c14">rollback de session</text><text x="786" y="434" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#8a7350">listener.rollbacks</text>
+<text x="958" y="412" font-weight="600" fill="#8f5c14">red&#233;livrance</text><text x="958" y="428" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="8.5" fill="#8a7350">&#8804; BOTHRESH(5) puis</text><text x="958" y="440" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="8.5" fill="#8a7350">PAYMENT.BACKOUT.QUEUE</text>
+</g>
+<g fill="none" stroke="#b0721c" stroke-opacity="0.55" stroke-width="1.6">
+<path d="M344 421H364"/><path d="M516 421H536"/><path d="M688 421H708"/><path d="M860 421H880"/>
+</g>
+<g fill="#b0721c">
+<polygon points="370,421 360,416 360,426"/><polygon points="542,421 532,416 532,426"/><polygon points="714,421 704,416 704,426"/><polygon points="886,421 876,416 876,426"/>
+</g>
+<path d="M958 448V468H192V177" fill="none" stroke="#b0721c" stroke-opacity="0.35" stroke-width="1.5" stroke-dasharray="5 7"/>
+<polygon points="196,177 186,172 186,182" fill="#b0721c" fill-opacity="0.5"/>
+<text x="620" y="486" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#8f5c14">le message revient au listener &#8212; l&#8217;idempotence sur messageId absorbe la redite</text>
+</g>
+
+<g opacity="0">
+<animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.03;0.28;0.31;1" values="0;1;1;0;0"/>
+<animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.04;0.28;1" keyPoints="0;0;1;1" path="M270 150H958"/>
+<circle r="10" fill="#ffffff" stroke="#27794C" stroke-width="1.8"/><circle r="3.6" fill="#27794C"/>
+</g>
+<g opacity="0">
+<animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.36;0.37;0.61;0.64;1" values="0;0;1;1;0;0"/>
+<animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.37;0.61;1" keyPoints="0;0;1;1" path="M270 272H958"/>
+<circle r="10" fill="#ffffff" stroke="#B53535" stroke-width="1.8"/><circle r="3.6" fill="#B53535"/>
+</g>
+<g opacity="0">
+<animate attributeName="opacity" dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.69;0.70;0.94;0.97;1" values="0;0;1;1;0;0"/>
+<animateMotion dur="12s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.70;0.94;1" keyPoints="0;0;1;1" path="M270 394H958"/>
+<circle r="10" fill="#ffffff" stroke="#b0721c" stroke-width="1.8"/><circle r="3.6" fill="#b0721c"/>
+</g>
+
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#5c6f80">
+<text x="34" y="516">Chronom&#232;tre payment.mq.processing &#233;tiquet&#233; par issue : persisted &#183; duplicate &#183; rejected &#183; error</text>
+<text x="1166" y="516" text-anchor="end">Boucle 12 s</text>
+</g>
+</svg>
