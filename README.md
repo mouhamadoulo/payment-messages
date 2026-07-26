@@ -33,6 +33,14 @@ L'objectif est de proposer une solution robuste répondant aux contraintes d'un 
 
 ## Architecture
 
+<p align="center">
+  <img src="docs/images/flux-architecture.svg" alt="Flux d'architecture animé : dépôt du message sur PAYMENT.REQUEST.QUEUE, consommation par le listener Spring Boot, persistance PostgreSQL, consultation via l'API REST depuis l'IHM Angular" width="100%">
+</p>
+
+<p align="center">
+  <sub>Boucle de 10 s — animation SMIL, aucun script. Le rendu statique reste lisible si les animations sont désactivées.</sub>
+</p>
+
 ```mermaid
 flowchart LR
     A[Applications Back Office]
@@ -321,6 +329,9 @@ Documentation complète : [docs/api/api-documentation.md](docs/api/api-documenta
 
 Swagger UI : `http://localhost:8080/swagger-ui.html`
 
+Collection Postman prête à importer (endpoints, cas d'erreur, actuator, variables chaînées
+entre requêtes) : [docs/postman/](docs/postman/README.md)
+
 ---
 
 ## Tests
@@ -422,6 +433,8 @@ Toute la documentation est dans le dossier [docs/](docs/).
 | Architecture frontend | [docs/architecture/architecture-frontend.md](docs/architecture/architecture-frontend.md) |
 | Flux de données | [docs/architecture/flux.md](docs/architecture/flux.md) |
 | API REST | [docs/api/api-documentation.md](docs/api/api-documentation.md) |
+| Collection Postman (38 requêtes, prête à importer) | [docs/postman/](docs/postman/README.md) |
+| Jeux de données de la file d'entrée (33 payloads + script d'envoi) | [docs/jdd/](docs/jdd/README.md) |
 | Modèle de données | [docs/database/database-model.md](docs/database/database-model.md) |
 | Configuration IBM MQ | [docs/ibm-mq/ibm-mq-configuration.md](docs/ibm-mq/ibm-mq-configuration.md) |
 
