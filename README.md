@@ -8,8 +8,11 @@
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)
 ![Maven](https://img.shields.io/badge/Maven-build-C71A36?logo=apachemaven)
 
-Collecte, stockage et consultation des messages de paiement transitant par **IBM MQ** : un listener
-JMS persiste en **PostgreSQL**, une **API REST** paginée expose, une **IHM Angular** consulte et pilote.
+## Fonctionnalités
+- Collecte, stockage et consultation des messages de paiement transitant par une Queue **IBM MQ** 
+- un listener JMS persiste en **PostgreSQL**, 
+- une **API REST** paginée expose, 
+- une **IHM Angular** consulte et pilote.
 
 <p align="center">
   <img src="docs/images/flux-architecture.svg" alt="Les applications Back Office déposent un message JSON sur PAYMENT.REQUEST.QUEUE ; le listener Spring Boot le consomme et le persiste en PostgreSQL ; l'IHM Angular le consulte via l'API REST" width="100%">
@@ -22,8 +25,13 @@ JMS persiste en **PostgreSQL**, une **API REST** paginée expose, une **IHM Angu
 ```bash
 cp backend/src/main/resources/application-dev.example.yaml \
    backend/src/main/resources/application-dev.yaml     # requis : sans ce fichier, pas de contexte
+```
+
+à la racine du proje , faire :
+```bash
 docker compose up -d                                   # pile complète, images applicatives buildées
 ```
+
 
 | Accès | URL |
 |---|---|
@@ -40,7 +48,6 @@ cd backend  && ./mvnw spring-boot:run  # profil dev par défaut → :8080
 cd frontend && npm install && ng serve  # relais /api vers :8080 → :4200
 ```
 
-Prérequis : **Java 21**, **Node.js 22**, **Docker Compose**. Sur Windows, `mvnw.cmd`.
 
 ---
 
@@ -60,6 +67,8 @@ Prérequis : **Java 21**, **Node.js 22**, **Docker Compose**. Sur Windows, `mvnw
 <p align="center">
   <img src="docs/images/cycle-de-vie-message.svg" alt="RECEIVED est l'état initial posé par le listener ; PUT /status mène à PROCESSED ou FAILED ; POST /retry rejoue un FAILED tant que retryCount reste sous max-retries, au-delà le message part en DEAD_LETTER" width="100%">
 </p>
+
+
 
 > **Hors périmètre : authentification et autorisations.** Aucun compte, aucun jeton, aucun rôle —
 > tous les endpoints répondent en clair. Le déploiement doit rester sur un réseau de confiance.
@@ -101,12 +110,12 @@ d'entité sans migration correspondante fait échouer le démarrage.
 curl -s http://localhost:8080/api/v1/messages
 ```
 
-15 endpoints, tous ouverts, sous `/api/v1` (`/messages`, `/config`, `/simulation`) — contrat
-complet, paramètres, exemples et cas d'erreur : **[docs/api/api-documentation.md](docs/api/api-documentation.md)**,
-ou Swagger UI sur `http://localhost:8080/swagger-ui.html`.
+- 15 endpoints, tous ouverts, sous `/api/v1` (`/messages`, `/config`, `/simulation`) 
+- contrat complet, paramètres, exemples et cas d'erreur : <br>
+**[docs/api/api-documentation.md](docs/api/api-documentation.md)**,
 
-La simulation **publie sur la file d'entrée et n'écrit rien en base** : les messages reviennent par
-le consommateur applicatif, avec les mêmes rejets.
+- ou Swagger UI sur `http://localhost:8080/swagger-ui.html`.
+
 
 ---
 
@@ -146,14 +155,17 @@ Diagrammes animés dans [docs/images/](docs/images/) — SVG autonomes, sans scr
 
 ## Observabilité
 
-`/actuator/health` (sondes `liveness` / `readiness`), `/actuator/info`, `/actuator/metrics`,
-`/actuator/prometheus`. **`env` a été retiré** : il exposait toute la configuration résolue,
-identifiants MQ compris.
+- `/actuator/health` (sondes `liveness` / `readiness`), 
+- `/actuator/info`, 
+- `/actuator/metrics`,
+- `/actuator/prometheus`. 
 
-Métriques métier : `payment.mq.messages.received` / `.rejected` / `.duplicates`,
-`payment.mq.listener.rollbacks`, `payment.dlq.publish.failures`, le chronomètre
-`payment.mq.processing` (étiqueté par issue) et les jauges `payment.messages.pending` / `.failed` /
-`.dead.letter`. Chaque réponse porte un `X-Request-Id`, repris dans les logs aux côtés du `messageId`.
+Métriques métier : 
+- `payment.mq.messages.received` / `.rejected` / `.duplicates`,
+- `payment.mq.listener.rollbacks`, 
+- `payment.dlq.publish.failures`, le chronomètre
+- `payment.mq.processing` (étiqueté par issue) et les jauges `payment.messages.pending` / `.failed` /
+- `.dead.letter`. Chaque réponse porte un `X-Request-Id`, repris dans les logs aux côtés du `messageId`.
 
 ---
 
@@ -176,8 +188,6 @@ payment-messages
 | IBM MQ Client 9.4.2.0 · Flyway · Caffeine | TypeScript 6 · RxJS 7.8 | nginx 1.27-alpine · node 22-alpine |
 | Actuator · Micrometer · SpringDoc 2.8.9 | Vitest 4 | H2 · Testcontainers (tests) |
 
-Le **client** IBM MQ est épinglé en 9.4.2.0 (via `mq-jms-spring-boot-starter`) ; l'**image**
-serveur de `docker-compose.yaml` suit `latest`, à figer sur un environnement partagé.
 
 ---
 
