@@ -22,14 +22,14 @@
 
 ## Démarrage
 
+- Copie de la config yaml (modifier si besoin) : 
 ```bash
-cp backend/src/main/resources/application-dev.example.yaml \
-   backend/src/main/resources/application-dev.yaml     # requis : sans ce fichier, pas de contexte
+cp backend/src/main/resources/application-dev.example.yaml backend/src/main/resources/application-dev.yaml     # requis : sans ce fichier, pas de contexte
 ```
 
-à la racine du proje , faire :
+- à la racine du projet , faire la commande suivante pour démarrer les conteneurs docker :
 ```bash
-docker compose up -d                                   # pile complète, images applicatives buildées
+docker compose up -d    # pile complète, images applicatives buildées
 ```
 
 
@@ -99,8 +99,6 @@ cd frontend && npm install && ng serve  # relais /api vers :8080 → :4200
 | `CORS_ALLOWED_ORIGINS` · `MAX_PAGE_SIZE` (`200`) · `REQUEST_TIMEOUT` (`15s`) · `CONNECTION_TIMEOUT` (`5s`) | garde-fous navigateur et HTTP |
 | `JPA_DDL_AUTO` (`validate`) · `FLYWAY_ENABLED` (`true`) · `MANAGEMENT_PORT` (vide) | schéma et port de l'actuator |
 
-Le schéma appartient à **Flyway** (`backend/src/main/resources/db/migration`) : une évolution
-d'entité sans migration correspondante fait échouer le démarrage.
 
 ---
 
@@ -111,9 +109,7 @@ curl -s http://localhost:8080/api/v1/messages
 ```
 
 - 15 endpoints, tous ouverts, sous `/api/v1` (`/messages`, `/config`, `/simulation`) 
-- contrat complet, paramètres, exemples et cas d'erreur : <br>
-**[docs/api/api-documentation.md](docs/api/api-documentation.md)**,
-
+- contrat complet, paramètres, exemples et cas d'erreur : **[docs/api/api-documentation.md](docs/api/api-documentation.md)**,
 - ou Swagger UI sur `http://localhost:8080/swagger-ui.html`.
 
 
@@ -130,11 +126,6 @@ cd backend
 cd frontend
 npm run test -- --no-watch     # Vitest, exécution unique
 ```
-
-Sans démon Docker, les `*IT` sont *skipped* et le build reste vert — la CI est donc le seul endroit
-où les migrations Flyway rencontrent un vrai PostgreSQL. GitHub Actions à chaque push et PR :
-backend `mvnw verify` · frontend `npm ci` + tests + build · `docker compose config` + `up -d --wait`.
-Tirs de charge dans `infra/load/` (injecteur JMS, scénario k6).
 
 ---
 
