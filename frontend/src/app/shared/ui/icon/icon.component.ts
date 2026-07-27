@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input } from '@angular/core';
 
 export type IconName =
   | 'dashboard' | 'messages' | 'play' | 'refresh' | 'search' | 'download'
@@ -86,7 +86,8 @@ export type IconName =
       }
     </svg>
   `,
-  styles: [`:host { display: inline-flex; line-height: 0; }`]
+  styles: [`:host { display: inline-flex; line-height: 0; }`],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class IconComponent {
   readonly name = input.required<IconName>();

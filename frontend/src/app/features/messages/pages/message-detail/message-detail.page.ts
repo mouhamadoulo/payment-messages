@@ -1,4 +1,4 @@
-import { Component, OnInit, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { MessageService } from '../../services/message.service';
@@ -15,7 +15,7 @@ import { PaymentMessageStatus } from '../../models/message.model';
 
       @if (messageService.detailLoading()) {
         <div class="state">Chargement…</div>
-      } @else if (messageService.error(); as err) {
+      } @else if (messageService.detailError(); as err) {
         <div class="state error">{{ err }}</div>
       } @else {
         <app-message-card
@@ -33,7 +33,8 @@ import { PaymentMessageStatus } from '../../models/message.model';
     .back-link:hover { color: var(--text); }
     .state { text-align: center; color: var(--muted); padding: var(--space-6); }
     .state.error { color: var(--danger); }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MessageDetailPage implements OnInit {
   private readonly route = inject(ActivatedRoute);
@@ -51,13 +52,13 @@ export class MessageDetailPage implements OnInit {
   }
 
   protected async onChangeStatus() {
+    const msg = this.messageService.currentMessage();
+    if (!msg) return;
+
     const { SelectStatusDialog } = await import('./select-status.dialog');
-    const ref = this.dialog.open(SelectStatusDialog);
-    ref.afterClosed().subscribe((status: PaymentMessageStatus) => {
-      if (status) {
-        const msg = this.messageService.currentMessage();
-        if (msg) this.messageService.updateStatus(msg.id, status);
-      }
+    const ref = this.dialog.open(SelectStatusDialog, { data: { current: msg.status } });
+    ref.afterClosed().subscribe((result?: { status: PaymentMessageStatus; reason?: string }) => {
+      if (result) this.messageService.updateStatus(msg.id, result.status, result.reason);
     });
   }
 

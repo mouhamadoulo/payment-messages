@@ -3,8 +3,19 @@
 * Attention : une commande MQSC qui tient sur plusieurs lignes doit se terminer
 * par le caractere de continuation '+', sinon strmqm echoue avec AMQ5776E.
 
+* BOTHRESH / BOQNAME : garde-fou anti-message empoisonne. Le listener laisse
+* remonter les erreurs transitoires pour que la session transactee effectue un
+* rollback et que le message soit redelivre. Sans seuil de backout, un message
+* toxique bouclerait indefiniment et saturerait les consommateurs : au-dela de
+* BOTHRESH redelivrances, le queue manager le deplace vers BOQNAME.
 DEFINE QLOCAL('PAYMENT.REQUEST.QUEUE') REPLACE +
        DESCR('File d entree des messages de paiement') +
+       DEFPSIST(YES) +
+       BOTHRESH(5) +
+       BOQNAME('PAYMENT.BACKOUT.QUEUE')
+
+DEFINE QLOCAL('PAYMENT.BACKOUT.QUEUE') REPLACE +
+       DESCR('Messages empoisonnes ecartes apres BOTHRESH redelivrances') +
        DEFPSIST(YES)
 
 DEFINE QLOCAL('PAYMENT.DLQ.QUEUE') REPLACE +

@@ -1,0 +1,1929 @@
+{
+  "info": {
+    "_postman_id": "b7f4a2d1-6c3e-4f58-9a02-3e1d7c5b8a44",
+    "name": "Payment Messages — API v1",
+    "description": "Collection de test de l'API **Payment Messages** : consommation IBM MQ → PostgreSQL → REST → Angular.\n\n## Avant de commencer\n\n1. Démarrer la pile : `docker compose up -d` (ou le backend seul sur `:8080`).\n2. Sélectionner l'environnement **Payment Messages — local**, ou vérifier la variable `baseUrl` de la collection.\n3. Lancer **01 · Messages · lecture → GET Liste paginée** : elle alimente `messageId`, utilisé par la moitié de la collection.\n4. Base vide ? Passer par **03 · Simulation** : c'est le seul moyen de créer des messages — l'API n'a pas d'endpoint d'écriture, les messages arrivent par la file.\n\n## Ce qu'il faut savoir\n\n- **Aucune authentification.** C'est un choix de périmètre du projet : ni compte, ni jeton, ni rôle. Tous les endpoints, actuator et Swagger UI compris, répondent sans identification. Le déploiement doit donc rester sur un réseau de confiance.\n- **La simulation n'écrit rien en base.** Elle publie sur la file d'entrée ; les messages reviennent par le consommateur applicatif avec la même validation et les mêmes rejets. Un payload volontairement illisible produit une vraie ligne `FAILED`.\n- **Les listes ne portent jamais le payload**, seulement sa taille (`payloadSize`). Seul `GET /messages/{id}` le renvoie.\n- **Les horodatages de l'API sont des `OffsetDateTime`** : `receivedAfter` exige un décalage horaire (`2026-01-01T00:00:00+01:00`). Les payloads MQ, eux, portent une `LocalDate` et une `LocalDateTime` **sans** décalage — deux contrats distincts, c'est volontaire.\n- **Les erreurs sont en `application/problem+json`** (RFC 9457) avec un `correlationId` repris du `X-Request-Id` envoyé.\n\n## Variables alimentées automatiquement\n\n| Variable | Alimentée par |\n|---|---|\n| `messageId` | `GET Liste paginée` |\n| `cursor` | `GET Curseur · première page` |\n| `statsEtag` | `GET Stats par statut` |\n| `batchTaskId` | `POST Rejeu massif des FAILED` |\n| `simTaskId` | tout envoi de simulation |\n| `mqQueue`, `simMaxCount`, `simMaxRate` | les endpoints de configuration |\n\nDocumentation complète : `docs/api/api-documentation.md`. Swagger UI : `{{baseUrl}}/swagger-ui.html`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "event": [
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Assertions communes à toutes les requêtes de la collection.",
+          "try {",
+          "    const path = pm.request.url.getPath();",
+          "",
+          "    if (path.indexOf('/api/') === 0) {",
+          "        pm.test('X-Request-Id renvoyé (corrélation des logs)', () => {",
+          "            pm.expect(pm.response.headers.has('X-Request-Id')).to.be.true;",
+          "        });",
+          "    }",
+          "",
+          "    if (pm.response.code >= 400) {",
+          "        pm.test('Erreur au format ProblemDetail (RFC 9457)', () => {",
+          "            const body = pm.response.json();",
+          "            pm.expect(body).to.have.property('status');",
+          "            pm.expect(body).to.have.property('title');",
+          "        });",
+          "    }",
+          "} catch (e) {",
+          "    console.warn('Assertions communes ignorées :', e.message);",
+          "}"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string",
+      "description": "Origine de l'API. Derrière nginx (docker compose), http://localhost:4200 fonctionne aussi pour /api — mais pas pour /actuator."
+    },
+    {
+      "key": "messageId",
+      "value": "",
+      "type": "string",
+      "description": "Alimentée par GET Liste paginée."
+    },
+    {
+      "key": "cursor",
+      "value": "",
+      "type": "string",
+      "description": "Curseur opaque, alimenté par la pagination keyset."
+    },
+    {
+      "key": "statsEtag",
+      "value": "",
+      "type": "string",
+      "description": "ETag de /stats, rejoué en If-None-Match."
+    },
+    {
+      "key": "batchTaskId",
+      "value": "",
+      "type": "string",
+      "description": "Identifiant du rejeu massif en cours."
+    },
+    {
+      "key": "simTaskId",
+      "value": "",
+      "type": "string",
+      "description": "Identifiant du dernier envoi de simulation."
+    },
+    {
+      "key": "mqQueue",
+      "value": "",
+      "type": "string",
+      "description": "File consommée, lue sur GET /config."
+    },
+    {
+      "key": "simMaxCount",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "simMaxRate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "simMessageId",
+      "value": "",
+      "type": "string",
+      "description": "Régénérée avant chaque envoi par le script du dossier Simulation."
+    },
+    {
+      "key": "simReference",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "simTransactionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "simDate",
+      "value": "",
+      "type": "string",
+      "description": "LocalDate AAAA-MM-JJ (contrat MQ)."
+    },
+    {
+      "key": "simDateTime",
+      "value": "",
+      "type": "string",
+      "description": "LocalDateTime sans décalage horaire (contrat MQ)."
+    }
+  ],
+  "item": [
+    {
+      "name": "00 · Configuration",
+      "description": "Ce que le serveur expose de sa configuration MQ, sans aucun secret : le DTO ne porte ni utilisateur ni mot de passe, ce n'est pas un filtrage à l'exécution.",
+      "item": [
+        {
+          "name": "GET Configuration MQ",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "config"
+              ]
+            },
+            "description": "Files, gestionnaire et canal, pour affichage dans l'IHM. Les valeurs sont figées à la construction du contrôleur : l'endpoint ne relit pas la configuration à chaque appel."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('Porte queue / dlqQueue / queueManager / channel', () => {",
+                  "    pm.expect(body).to.have.all.keys('queue', 'dlqQueue', 'queueManager', 'channel');",
+                  "});",
+                  "pm.test('Aucun secret exposé', () => {",
+                  "    pm.expect(body).to.not.have.property('user');",
+                  "    pm.expect(body).to.not.have.property('password');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('mqQueue', body.queue);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Contrat OpenAPI",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v3/api-docs",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v3",
+                "api-docs"
+              ]
+            },
+            "description": "Contrat OpenAPI généré par SpringDoc. Swagger UI est servi à part sur `/swagger-ui.html` (à ouvrir dans un navigateur, pas ici)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Les trois groupes de routes sont décrits', () => {",
+                  "    const paths = Object.keys(pm.response.json().paths);",
+                  "    pm.expect(paths).to.include('/api/v1/messages');",
+                  "    pm.expect(paths).to.include('/api/v1/simulation/sends');",
+                  "    pm.expect(paths).to.include('/api/v1/config');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "01 · Messages · lecture",
+      "description": "Lectures paginées, filtrées et agrégées. Aucune de ces requêtes ne renvoie le payload, sauf `GET /{id}` : les listes portent une projection où `payloadSize` remplace le contenu.\n\nLancer d'abord **Liste paginée** : elle alimente la variable `messageId` utilisée par le reste de la collection.",
+      "item": [
+        {
+          "name": "GET Liste paginée",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages?page=0&size=20&sort=receivedAt,desc",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                },
+                {
+                  "key": "sort",
+                  "value": "receivedAt,desc",
+                  "description": "propriété,direction — tri appliqué en SQL"
+                },
+                {
+                  "key": "status",
+                  "value": "FAILED",
+                  "description": "RECEIVED | PROCESSED | FAILED | DEAD_LETTER",
+                  "disabled": true
+                },
+                {
+                  "key": "receivedAfter",
+                  "value": "2026-01-01T00:00:00+01:00",
+                  "description": "ISO 8601 avec décalage horaire — obligatoire (OffsetDateTime)",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "SEPA_CREDIT_TRANSFER",
+                  "description": "égalité stricte",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "VIR-2026",
+                  "description": "fragment cherché dans reference, messageId ou messageType (insensible à la casse)",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Page de messages sans payload. Les quatre filtres (`status`, `receivedAfter`, `type`, `q`) sont désactivés par défaut — les cocher dans l'onglet *Params* pour les essayer. Ils s'appliquent en base, sur toute la table, pas sur la page affichée.\n\n`size` est plafonné à 200 côté serveur (`spring.data.web.pageable.max-page-size`) : une valeur supérieure est ramenée à la borne, elle n'est pas refusée.\n\n**Effet de bord utile** : le test enregistre l'`id` de la première ligne dans la variable de collection `messageId`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "",
+                  "pm.test('Enveloppe de page complète', () => {",
+                  "    pm.expect(body).to.have.property('content');",
+                  "    pm.expect(body).to.have.property('totalElements');",
+                  "    pm.expect(body).to.have.property('totalPages');",
+                  "});",
+                  "",
+                  "// Sur une base vide il n'y a rien à vérifier : l'assertion serait vraie par vacuité.",
+                  "if (body.content.length) {",
+                  "    pm.test('Les lignes ne portent pas le payload, seulement sa taille', () => {",
+                  "        pm.expect(body.content[0]).to.not.have.property('payload');",
+                  "        pm.expect(body.content[0]).to.have.property('payloadSize');",
+                  "    });",
+                  "}",
+                  "",
+                  "if (body.content && body.content.length) {",
+                  "    pm.collectionVariables.set('messageId', body.content[0].id);",
+                  "    console.log('messageId =', body.content[0].id);",
+                  "} else {",
+                  "    console.warn('Aucun message en base : lancer un envoi depuis le dossier « 03 · Simulation ».');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Liste filtrée (statut FAILED)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages?status=FAILED&page=0&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "FAILED"
+                },
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Le filtre par statut est celui que pose un clic sur une pastille de l'IHM. Comparer `totalElements` avec la valeur `FAILED` renvoyée par `GET /stats` : les deux passent par le même prédicat SQL, elles ne peuvent pas diverger."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Toutes les lignes sont FAILED', () => {",
+                  "    pm.response.json().content.forEach((m) => pm.expect(m.status).to.eql('FAILED'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Curseur · première page",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/cursor?size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "cursor"
+              ],
+              "query": [
+                {
+                  "key": "size",
+                  "value": "20",
+                  "description": "borné 1–200 : au-delà, 400 (et non un rabotage silencieux)"
+                },
+                {
+                  "key": "status",
+                  "value": "RECEIVED",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "SEPA_CREDIT_TRANSFER",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "VIR",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Pagination keyset : ni `COUNT(*)` ni `OFFSET`, donc un coût constant quelle que soit la profondeur. Le tri est figé sur `receivedAt DESC, id DESC` — il n'est pas paramétrable, c'est ce qui rend le curseur stable.\n\nLe test enregistre `nextCursor` dans la variable `cursor`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('Porte content / nextCursor / hasNext', () => {",
+                  "    pm.expect(body).to.have.all.keys('content', 'nextCursor', 'hasNext');",
+                  "});",
+                  "",
+                  "if (body.nextCursor) {",
+                  "    pm.collectionVariables.set('cursor', body.nextCursor);",
+                  "    console.log('cursor =', body.nextCursor);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Curseur · page suivante",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/cursor?cursor={{cursor}}&size=20",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "cursor"
+              ],
+              "query": [
+                {
+                  "key": "cursor",
+                  "value": "{{cursor}}"
+                },
+                {
+                  "key": "size",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Rejoue la requête avec le `nextCursor` de la réponse précédente. Lancer d'abord **Curseur · première page**, sinon `{{cursor}}` est vide et la requête repart du début."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "if (body.nextCursor) {",
+                  "    pm.collectionVariables.set('cursor', body.nextCursor);",
+                  "}",
+                  "pm.test('hasNext est un booléen', () => pm.expect(body.hasNext).to.be.a('boolean'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Stats par statut",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "stats"
+              ],
+              "query": [
+                {
+                  "key": "receivedAfter",
+                  "value": "2026-01-01T00:00:00+01:00",
+                  "disabled": true
+                },
+                {
+                  "key": "type",
+                  "value": "SEPA_CREDIT_TRANSFER",
+                  "disabled": true
+                },
+                {
+                  "key": "q",
+                  "value": "VIR",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "Compteurs par statut **sous les filtres actifs**, le statut excepté — c'est la dimension de regroupement, pas un filtre. Sans filtre, la réponse porte un `ETag` et un `Cache-Control: max-age` de la durée de `STATS_CACHE_TTL`.\n\nLe test enregistre l'`ETag` dans `statsEtag`, consommé par la requête suivante."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "pm.test('Les quatre statuts sont présents, même à zéro', () => {",
+                  "    const body = pm.response.json();",
+                  "    ['RECEIVED', 'PROCESSED', 'FAILED', 'DEAD_LETTER'].forEach((s) => {",
+                  "        pm.expect(body).to.have.property(s);",
+                  "    });",
+                  "});",
+                  "",
+                  "pm.test('Cache-Control positionné', () => {",
+                  "    pm.expect(pm.response.headers.get('Cache-Control')).to.include('max-age');",
+                  "});",
+                  "",
+                  "const etag = pm.response.headers.get('ETag');",
+                  "if (etag) {",
+                  "    pm.collectionVariables.set('statsEtag', etag);",
+                  "    console.log('ETag =', etag);",
+                  "} else {",
+                  "    console.warn(\"Pas d'ETag : le filtre ShallowEtag ne couvre que /api/v1/messages et /api/v1/messages/*\");",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Stats · revalidation (304 attendu)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "If-None-Match",
+                "value": "{{statsEtag}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/stats",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "stats"
+              ]
+            },
+            "description": "Renvoie l'`ETag` capturé par la requête précédente dans `If-None-Match`. Tant qu'aucune écriture n'a eu lieu, le serveur répond **304 sans corps**.\n\nUn 200 ici n'est pas un échec : il signifie que l'agrégat a changé entre les deux appels (un message consommé depuis MQ suffit)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('304 Not Modified, ou 200 si l\\'agrégat a changé', () => {",
+                  "    pm.expect([200, 304]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 304) {",
+                  "    pm.test('Corps vide', () => pm.expect(pm.response.text()).to.be.empty);",
+                  "} else {",
+                  "    console.warn('200 : des messages ont été écrits depuis la capture de l\\'ETag.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Agrégats du dashboard",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/stats/dashboard",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "stats",
+                "dashboard"
+              ]
+            },
+            "description": "Tout ce que le tableau de bord affiche, calculé en SQL : 24 tranches horaires alignées sur l'heure pleine (toujours présentes, même à zéro), répartition par type et par nombre de tentatives, dernière réception, cinq derniers échecs.\n\nQuelques centaines d'octets, comptages exacts sur toute la table — l'écran ne télécharge plus d'échantillon de 200 messages."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('24 tranches horaires, toujours présentes', () => {",
+                  "    pm.expect(body.hourly).to.be.an('array').with.lengthOf(24);",
+                  "    pm.expect(body.hourly[0]).to.have.all.keys('bucketStart', 'hour', 'count');",
+                  "});",
+                  "pm.test('Compartiments de tentatives 0 / 1 / 2 / 3+', () => {",
+                  "    pm.expect(body.retries).to.have.all.keys('none', 'one', 'two', 'threeOrMore');",
+                  "});",
+                  "pm.test('Les échecs récents sont des résumés, sans payload', () => {",
+                  "    body.recentFailures.forEach((m) => pm.expect(m).to.not.have.property('payload'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Types présents en base",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/types",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "types"
+              ]
+            },
+            "description": "Alimente le sélecteur de type de la barre de filtres. La liste ne peut pas être déduite de la page affichée, le filtre par type portant sur toute la table."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Tableau de chaînes trié', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(body).to.be.an('array');",
+                  "    pm.expect([...body].sort()).to.eql(body);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Détail d'un message",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/{{messageId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "{{messageId}}"
+              ]
+            },
+            "description": "Le **seul** endpoint qui renvoie le payload brut. Utilise `{{messageId}}`, alimenté par **Liste paginée**."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('Le payload est renvoyé ici, et seulement ici', () => {",
+                  "    pm.expect(body).to.have.property('payload');",
+                  "    pm.expect(body).to.have.property('payloadSize');",
+                  "});",
+                  "pm.test('Horodatages avec décalage horaire (OffsetDateTime)', () => {",
+                  "    pm.expect(body.receivedAt).to.match(/[+-]\\d{2}:\\d{2}$|Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 · Messages · actions",
+      "description": "Commandes de cycle de vie. Elles invalident les caches de lecture (`messageStats`, `dashboardStats`, `messageTypes`) — contrairement à l'ingestion MQ, qui ne les touche pas.\n\n⚠️ **Supprimer un message** est en dernier et détruit `{{messageId}}` : relancer **Liste paginée** ensuite.",
+      "item": [
+        {
+          "name": "POST Rejeu unitaire",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/{{messageId}}/retry",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "{{messageId}}",
+                "retry"
+              ]
+            },
+            "description": "Incrémente `retryCount`, efface l'erreur et repasse le message en `RECEIVED`. Au-delà de `ibm.mq.max-retries`, il bascule en `DEAD_LETTER` et son payload est republié sur la DLQ applicative — la publication a lieu **après commit**, et seule une publication acceptée par le broker pose `dlqPublishedAt`.\n\nSeuls les messages `FAILED` sont rejouables : sur un autre statut, la réponse est un `400`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 sur un FAILED, 400 sinon', () => {",
+                  "    pm.expect([200, 400, 404]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Repassé en RECEIVED ou basculé en DEAD_LETTER', () => {",
+                  "        pm.expect(['RECEIVED', 'DEAD_LETTER']).to.include(body.status);",
+                  "    });",
+                  "} else if (pm.response.code === 400) {",
+                  "    console.warn('Message non rejouable : seul un FAILED l\\'est. Filtrer la liste sur status=FAILED.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT Changer le statut",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/{{messageId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "{{messageId}}",
+                "status"
+              ]
+            },
+            "description": "Corps validé (`{ status, reason }`), plus une chaîne JSON brute. La transition est confrontée à la machine à états : `RECEIVED → PROCESSED | FAILED`, `FAILED → RECEIVED | PROCESSED | DEAD_LETTER`, `PROCESSED` et `DEAD_LETTER` terminaux. Toute autre demande est refusée en **422** avec `from`, `to` et `allowedTransitions`.\n\nUn statut identique à l'actuel est accepté sans effet : aucune version consommée, aucune écriture.\n\n`reason` est tracé dans les logs, et conservé comme `errorMessage` quand la cible est `FAILED` ou `DEAD_LETTER` (effacé sinon).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"PROCESSED\",\n  \"reason\": \"Vérifié manuellement après correction du référentiel bénéficiaire\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200, ou 422 si la transition est interdite', () => {",
+                  "    pm.expect([200, 404, 409, 422]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 200) {",
+                  "    pm.test('Statut appliqué', () => pm.expect(pm.response.json().status).to.eql('PROCESSED'));",
+                  "}",
+                  "if (pm.response.code === 422) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Le refus dit ce qui était permis', () => {",
+                  "        pm.expect(body).to.have.property('allowedTransitions');",
+                  "    });",
+                  "    console.warn('Transition refusée :', body.from, '->', body.to, '| permis :', body.allowedTransitions);",
+                  "}",
+                  "if (pm.response.code === 409) {",
+                  "    console.warn('Verrou optimiste perdu : le message a bougé entre-temps, le recharger.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Rejeu massif des FAILED",
+          "request": {
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/batch/retry-failed",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "batch",
+                "retry-failed"
+              ]
+            },
+            "description": "Tâche de fond par lots bornés (`app.batch-retry.batch-size`, 500 par défaut), chacun dans sa propre transaction. Réponse immédiate en **202** avec un `taskId`.\n\nUn seul rejeu en vol à la fois : un second appel rend la tâche déjà en cours. Le plafond `app.batch-retry.max-messages` interrompt un rejeu trop volumineux (`truncated: true`) — relancer l'appel pour poursuivre.\n\nLe test enregistre `taskId` dans `batchTaskId`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted', () => pm.response.to.have.status(202));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('Rend un taskId suivable', () => pm.expect(body.taskId).to.be.a('string'));",
+                  "pm.collectionVariables.set('batchTaskId', body.taskId);",
+                  "console.log('batchTaskId =', body.taskId);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Suivi du rejeu massif",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/batch/retry-failed/{{batchTaskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "batch",
+                "retry-failed",
+                "{{batchTaskId}}"
+              ]
+            },
+            "description": "`state` vaut `RUNNING`, `COMPLETED` ou `FAILED`. L'historique ne retient que les **50 dernières** tâches : au-delà, la réponse est un 404."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('État connu', () => pm.expect(['RUNNING', 'COMPLETED', 'FAILED']).to.include(body.state));",
+                  "if (body.truncated) {",
+                  "    console.warn('Rejeu tronqué par app.batch-retry.max-messages : relancer pour poursuivre.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "DELETE Supprimer un message",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/{{messageId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "{{messageId}}"
+              ]
+            },
+            "description": "⚠️ Irréversible et sans confirmation côté API. Détruit le message pointé par `{{messageId}}` : relancer **Liste paginée** pour réalimenter la variable."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('204 No Content', () => pm.response.to.have.status(204));",
+                  "pm.test('Aucun corps', () => pm.expect(pm.response.text()).to.be.empty);",
+                  "pm.collectionVariables.unset('messageId');"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 · Simulation",
+      "description": "Dépôt de messages de test sur la file d'entrée IBM MQ, dans le rôle que tiennent les applications de back-office.\n\n**Rien n'est écrit en base par ces endpoints** : le payload est publié tel quel et repasse par le consommateur applicatif — même désérialisation, même validation, mêmes rejets. Le résultat s'observe dans `GET /api/v1/messages`, pas ici.\n\n**La destination n'est pas un paramètre** : les messages partent toujours sur `ibm.mq.queue`, la seule file consommée. `GET /simulation/config` l'expose pour affichage.\n\nLes payloads suivent le contrat de la **file** (`PaymentMessageEvent`), pas celui de l'API REST : `payment.executionDate` est une `LocalDate` et `createdAt` une `LocalDateTime` **sans décalage horaire**. Un script de dossier régénère `simMessageId`, `simReference`, `simTransactionId`, `simDate` et `simDateTime` avant chaque envoi.",
+      "item": [
+        {
+          "name": "GET Configuration de la simulation",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulation/config",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulation",
+                "config"
+              ]
+            },
+            "description": "File visée et bornes (`max-count`, `max-rate`), plus le drapeau d'activation. Les bornes sont à lire ici plutôt qu'à recopier en dur : le serveur refuse de toute façon ce qui les dépasse."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('Porte enabled / queue / maxCount / maxRate', () => {",
+                  "    pm.expect(body).to.have.all.keys('enabled', 'queue', 'maxCount', 'maxRate');",
+                  "});",
+                  "",
+                  "pm.collectionVariables.set('simMaxCount', body.maxCount);",
+                  "pm.collectionVariables.set('simMaxRate', body.maxRate);",
+                  "if (!body.enabled) {",
+                  "    console.warn('Simulation désactivée : les envois répondront 503.');",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Envoi unitaire · virement SEPA",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulation/sends",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulation",
+                "sends"
+              ]
+            },
+            "description": "Cas nominal : le message est publié, consommé, validé et persisté en `RECEIVED`. Le vérifier ensuite avec **Liste paginée**.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": \"{\\\"messageId\\\":\\\"{{simMessageId}}\\\",\\\"messageType\\\":\\\"SEPA_CREDIT_TRANSFER\\\",\\\"reference\\\":\\\"{{simReference}}\\\",\\\"payment\\\":{\\\"transactionId\\\":\\\"{{simTransactionId}}\\\",\\\"amount\\\":15750,\\\"currency\\\":\\\"EUR\\\",\\\"executionDate\\\":\\\"{{simDate}}\\\"},\\\"debtor\\\":{\\\"accountNumber\\\":\\\"FR7630006000011234567890189\\\",\\\"name\\\":\\\"ACME Corp SA\\\",\\\"bankCode\\\":\\\"AGRIFRPP\\\"},\\\"creditor\\\":{\\\"accountNumber\\\":\\\"DE89370400440532013000\\\",\\\"name\\\":\\\"Vinci Construction\\\",\\\"bankCode\\\":\\\"DEUTDEFF\\\"},\\\"status\\\":\\\"RECEIVED\\\",\\\"createdAt\\\":\\\"{{simDateTime}}\\\"}\",\n  \"count\": 1,\n  \"ratePerSecond\": 20,\n  \"uniqueIds\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted, ou 503 si la simulation est coupée', () => {",
+                  "    pm.expect([202, 503]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 503) {",
+                  "    console.warn('app.simulation.enabled = false sur cet environnement.');",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Destination imposée par le serveur', () => {",
+                  "        pm.expect(body.destination).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.collectionVariables.set('simTaskId', body.taskId);",
+                  "    console.log('simTaskId =', body.taskId, '| destination =', body.destination);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Envoi unitaire · SWIFT MT103",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulation/sends",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulation",
+                "sends"
+              ]
+            },
+            "description": "Second type de message, pour donner de la matière au filtre par type et à la répartition du dashboard.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": \"{\\\"messageId\\\":\\\"{{simMessageId}}\\\",\\\"messageType\\\":\\\"SWIFT_MT103\\\",\\\"reference\\\":\\\"{{simReference}}\\\",\\\"payment\\\":{\\\"transactionId\\\":\\\"{{simTransactionId}}\\\",\\\"amount\\\":248900,\\\"currency\\\":\\\"USD\\\",\\\"executionDate\\\":\\\"{{simDate}}\\\"},\\\"debtor\\\":{\\\"accountNumber\\\":\\\"FR7612345000099887766554\\\",\\\"name\\\":\\\"Airbus Finance\\\",\\\"bankCode\\\":\\\"BNPAFRPP\\\"},\\\"creditor\\\":{\\\"accountNumber\\\":\\\"US64SVBK00700099887766\\\",\\\"name\\\":\\\"Boeing Treasury\\\",\\\"bankCode\\\":\\\"SVBKUS6S\\\"},\\\"status\\\":\\\"RECEIVED\\\",\\\"createdAt\\\":\\\"{{simDateTime}}\\\"}\",\n  \"count\": 1,\n  \"ratePerSecond\": 20,\n  \"uniqueIds\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted, ou 503 si la simulation est coupée', () => {",
+                  "    pm.expect([202, 503]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 503) {",
+                  "    console.warn('app.simulation.enabled = false sur cet environnement.');",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Destination imposée par le serveur', () => {",
+                  "        pm.expect(body.destination).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.collectionVariables.set('simTaskId', body.taskId);",
+                  "    console.log('simTaskId =', body.taskId, '| destination =', body.destination);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Envoi en masse · 50 messages à 20/s",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulation/sends",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulation",
+                "sends"
+              ]
+            },
+            "description": "`uniqueIds: true` réécrit `messageId` sur chaque copie. Ce n'est pas un confort : l'ingestion est **idempotente sur `messageId`**, sans réécriture les 50 copies passent pour des redélivrances du même message et une seule ligne est persistée. Passer le drapeau à `false` est justement le moyen de tester la déduplication.\n\n`count` et `ratePerSecond` sont plafonnés par `app.simulation.max-count` / `max-rate` ; un seul envoi peut être en vol à la fois.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": \"{\\\"messageId\\\":\\\"{{simMessageId}}\\\",\\\"messageType\\\":\\\"SEPA_CREDIT_TRANSFER\\\",\\\"reference\\\":\\\"{{simReference}}\\\",\\\"payment\\\":{\\\"transactionId\\\":\\\"{{simTransactionId}}\\\",\\\"amount\\\":15750,\\\"currency\\\":\\\"EUR\\\",\\\"executionDate\\\":\\\"{{simDate}}\\\"},\\\"debtor\\\":{\\\"accountNumber\\\":\\\"FR7630006000011234567890189\\\",\\\"name\\\":\\\"ACME Corp SA\\\",\\\"bankCode\\\":\\\"AGRIFRPP\\\"},\\\"creditor\\\":{\\\"accountNumber\\\":\\\"DE89370400440532013000\\\",\\\"name\\\":\\\"Vinci Construction\\\",\\\"bankCode\\\":\\\"DEUTDEFF\\\"},\\\"status\\\":\\\"RECEIVED\\\",\\\"createdAt\\\":\\\"{{simDateTime}}\\\"}\",\n  \"count\": 50,\n  \"ratePerSecond\": 20,\n  \"uniqueIds\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted, ou 503 si la simulation est coupée', () => {",
+                  "    pm.expect([202, 503]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 503) {",
+                  "    console.warn('app.simulation.enabled = false sur cet environnement.');",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Destination imposée par le serveur', () => {",
+                  "        pm.expect(body.destination).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.collectionVariables.set('simTaskId', body.taskId);",
+                  "    console.log('simTaskId =', body.taskId, '| destination =', body.destination);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Rejet définitif · champs manquants",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulation/sends",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulation",
+                "sends"
+              ]
+            },
+            "description": "JSON lisible mais incomplet (`reference`, `payment` et `status` absents) : le consommateur le rejette **à la validation**, persiste une ligne `FAILED` porteuse du payload brut et du motif, puis acquitte. Rien n'est perdu et la ligne reste rejouable — c'est le contraire d'une redélivrance en boucle.\n\nL'API répond quand même 202 : elle ne juge pas le payload, elle le publie.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": \"{\\\"messageId\\\":\\\"{{simMessageId}}\\\",\\\"messageType\\\":\\\"SEPA_CREDIT_TRANSFER\\\",\\\"debtor\\\":{\\\"accountNumber\\\":\\\"FR7630006000011234567890189\\\",\\\"name\\\":\\\"ACME Corp SA\\\"},\\\"createdAt\\\":\\\"{{simDateTime}}\\\"}\",\n  \"count\": 1,\n  \"ratePerSecond\": 20,\n  \"uniqueIds\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted, ou 503 si la simulation est coupée', () => {",
+                  "    pm.expect([202, 503]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 503) {",
+                  "    console.warn('app.simulation.enabled = false sur cet environnement.');",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Destination imposée par le serveur', () => {",
+                  "        pm.expect(body.destination).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.collectionVariables.set('simTaskId', body.taskId);",
+                  "    console.log('simTaskId =', body.taskId, '| destination =', body.destination);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Rejet définitif · JSON illisible",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulation/sends",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulation",
+                "sends"
+              ]
+            },
+            "description": "Payload non désérialisable : rejet **à la lecture**, ligne `FAILED` avec le payload brut. `uniqueIds` reste sans effet ici — la réécriture de `messageId` ne s'applique qu'aux payloads qui sont des objets JSON, un payload illisible part inchangé.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": \"{\\n  messageType: SEPA_CREDIT_TRANSFER,\\n  amount: 100,00,\\n  currency \\\"EUR\\\"\\n}\",\n  \"count\": 1,\n  \"ratePerSecond\": 20,\n  \"uniqueIds\": true\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('202 Accepted, ou 503 si la simulation est coupée', () => {",
+                  "    pm.expect([202, 503]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 503) {",
+                  "    console.warn('app.simulation.enabled = false sur cet environnement.');",
+                  "} else {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Destination imposée par le serveur', () => {",
+                  "        pm.expect(body.destination).to.be.a('string').and.not.empty;",
+                  "    });",
+                  "    pm.collectionVariables.set('simTaskId', body.taskId);",
+                  "    console.log('simTaskId =', body.taskId, '| destination =', body.destination);",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Suivi de l'envoi",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulation/sends/{{simTaskId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulation",
+                "sends",
+                "{{simTaskId}}"
+              ]
+            },
+            "description": "Les compteurs portent sur la **publication**, pas sur le traitement : `published` signifie que le broker a accepté le message. Son sort applicatif — `RECEIVED` ou `FAILED` — se lit dans `GET /api/v1/messages`.\n\nL'historique ne retient que les **20 derniers** envois."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('État connu', () => pm.expect(['RUNNING', 'COMPLETED', 'FAILED']).to.include(body.state));",
+                  "console.log(body.state, '| envoyés', body.sent, '/', body.total, '| publiés', body.published, '| échecs', body.failed);"
+                ]
+              }
+            }
+          ]
+        }
+      ],
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const now = new Date();",
+              "const pad = (n) => String(n).padStart(2, '0');",
+              "",
+              "// LocalDate côté serveur : construit en heure locale, toISOString() basculerait en UTC.",
+              "const date = now.getFullYear() + '-' + pad(now.getMonth() + 1) + '-' + pad(now.getDate());",
+              "// LocalDateTime : pas de décalage horaire, pas de Z — contrairement aux horodatages de l'API.",
+              "const dateTime = date + 'T' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + ':' + pad(now.getSeconds());",
+              "const stamp = now.getTime().toString(36).toUpperCase();",
+              "",
+              "pm.collectionVariables.set('simDate', date);",
+              "pm.collectionVariables.set('simDateTime', dateTime);",
+              "pm.collectionVariables.set('simMessageId', 'MSG-PM-' + stamp);",
+              "pm.collectionVariables.set('simReference', 'VIR-' + now.getFullYear() + '-' + pad(now.getMonth() + 1) + pad(now.getDate()) + '-' + pad(now.getHours()) + pad(now.getMinutes()));",
+              "pm.collectionVariables.set('simTransactionId', 'TX-' + now.getFullYear() + pad(now.getMonth() + 1) + pad(now.getDate()) + '-' + String(now.getTime()).slice(-6));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 · Actuator",
+      "description": "Supervision. Quatre endpoints seulement sont exposés : `health`, `info`, `metrics`, `prometheus`. **`env` a été retiré** — il dumpait toute la configuration résolue, identifiants MQ compris.\n\n`MANAGEMENT_PORT` déplace l'actuator sur un port dédié : dans ce cas, ces requêtes ne répondent plus sur `baseUrl` — dupliquer l'environnement avec le port de gestion.",
+      "item": [
+        {
+          "name": "GET Santé",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            },
+            "description": "Statut agrégé seul : `show-details: never` hors profil `dev`, le détail énumérant les composants et donc la topologie interne."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('UP', () => pm.expect(pm.response.json().status).to.eql('UP'));",
+                  "pm.test('Détail des composants fermé', () => {",
+                  "    pm.expect(pm.response.json()).to.not.have.property('components');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Sonde de disponibilité (readiness)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health/readiness",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health",
+                "readiness"
+              ]
+            },
+            "description": "Ce que le healthcheck Compose et une `readinessProbe` Kubernetes interrogent : la base y est incluse — sans elle aucun appel n'aboutit, l'instance ne doit pas recevoir de trafic. Le broker n'y est **pas**."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('UP', () => pm.expect(pm.response.json().status).to.eql('UP'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Sonde de vivacité (liveness)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health/liveness",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health",
+                "liveness"
+              ]
+            },
+            "description": "Ne doit provoquer un redémarrage que si le contexte est irrécupérable : y mettre une dépendance externe ferait redémarrer en boucle une application saine dont la base est momentanément absente."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Info",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/info",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "info"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Liste des métriques",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/metrics",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "metrics"
+              ]
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Les métriques métier sont enregistrées', () => {",
+                  "    const names = pm.response.json().names;",
+                  "    pm.expect(names).to.include('payment.mq.messages.received');",
+                  "    pm.expect(names).to.include('payment.messages.pending');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Métrique · messages reçus",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/metrics/payment.mq.messages.received",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "metrics",
+                "payment.mq.messages.received"
+              ]
+            },
+            "description": "Compteur d'ingestion. Ses voisins : `.rejected` (rejets définitifs), `.duplicates` (redélivrances ignorées), `payment.mq.listener.rollbacks`, `payment.dlq.publish.failures`, le chronomètre `payment.mq.processing` (étiqueté par issue) et les jauges `payment.messages.pending` / `.failed` / `.dead.letter`."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "console.log('COUNT =', pm.response.json().measurements[0].value);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Exposition Prometheus",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/prometheus",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "prometheus"
+              ]
+            },
+            "description": "Format texte scrapé par Prometheus. Les jauges sont lues sur l'agrégat **mis en cache** : un `GROUP BY` brut à chaque scrape serait la requête la plus coûteuse du système."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('200 OK', () => pm.response.to.have.status(200));",
+                  "pm.test('Les métriques métier sont exposées', () => {",
+                  "    pm.expect(pm.response.text()).to.include('payment_mq_messages_received');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 · Cas d'erreur",
+      "description": "Le contrat d'erreur, endpoint par endpoint. Toutes les réponses sont en `application/problem+json` (RFC 9457) et portent un `correlationId` repris du `X-Request-Id` de la requête — c'est la clé pour retrouver la trace serveur.\n\nLe 500 n'expose **jamais** le message d'exception : il rend le `correlationId` et journalise le reste.",
+      "item": [
+        {
+          "name": "GET Message inexistant → 404",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-Request-Id",
+                "value": "postman-404-{{$randomUUID}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/999999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "999999999"
+              ]
+            },
+            "description": "Le `X-Request-Id` envoyé ici doit se retrouver tel quel dans `correlationId` et dans les logs serveur."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));",
+                  "pm.test('Content-Type problem+json', () => {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "});",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('type urn:payment-messages:not-found', () => {",
+                  "    pm.expect(body.type).to.eql('urn:payment-messages:not-found');",
+                  "});",
+                  "pm.test('correlationId = X-Request-Id envoyé', () => {",
+                  "    pm.expect(body.correlationId).to.eql(pm.request.headers.get('X-Request-Id'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT Transition interdite → 422",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/{{messageId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "{{messageId}}",
+                "status"
+              ]
+            },
+            "description": "`RECEIVED → DEAD_LETTER` n'est pas dans le graphe : on n'abandonne pas un message qui n'a jamais été rejoué. Le refus dit ce qui était permis (`from`, `to`, `allowedTransitions`) au lieu d'un 400 muet.\n\nSi `{{messageId}}` pointe un message déjà `FAILED`, la transition est **autorisée** et la réponse est un 200 : reprendre un message `RECEIVED` pour observer le 422.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"DEAD_LETTER\",\n  \"reason\": \"Transition volontairement interdite\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('422, ou 200 si le message était déjà FAILED', () => {",
+                  "    pm.expect([200, 404, 422]).to.include(pm.response.code);",
+                  "});",
+                  "",
+                  "if (pm.response.code === 422) {",
+                  "    const body = pm.response.json();",
+                  "    pm.test('Porte from / to / allowedTransitions', () => {",
+                  "        pm.expect(body).to.have.property('from');",
+                  "        pm.expect(body).to.have.property('to');",
+                  "        pm.expect(body.allowedTransitions).to.be.an('array');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Curseur illisible → 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/cursor?cursor=ceci-nest-pas-un-curseur",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "cursor"
+              ],
+              "query": [
+                {
+                  "key": "cursor",
+                  "value": "ceci-nest-pas-un-curseur"
+                }
+              ]
+            },
+            "description": "Le curseur est opaque mais vérifié : un jeton forgé ne fait pas repartir la pagination du début en silence."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Curseur size=500 → 400",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/cursor?size=500",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "cursor"
+              ],
+              "query": [
+                {
+                  "key": "size",
+                  "value": "500"
+                }
+              ]
+            },
+            "description": "Le curseur **refuse** au-delà de 200, là où `GET /messages` rabote silencieusement à la borne : deux comportements différents, tous deux volontaires — sans cette borne, `?size=100000` était accepté tel quel."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Simulation · payload vide → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulation/sends",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulation",
+                "sends"
+              ]
+            },
+            "description": "`@NotBlank` sur le payload. Le corps d'erreur porte le détail par champ dans `errors`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": \"\",\n  \"count\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));",
+                  "pm.test('Détail par champ', () => {",
+                  "    pm.expect(pm.response.json()).to.have.property('errors');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "POST Simulation · count hors borne → 400",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/simulation/sends",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "simulation",
+                "sends"
+              ]
+            },
+            "description": "Le plafond `app.simulation.max-count` est appliqué **côté serveur** : l'IHM n'est pas une frontière de confiance, elle affiche la borne mais ne la garantit pas.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"payload\": \"{\\\"messageId\\\":\\\"X\\\"}\",\n  \"count\": 999999,\n  \"ratePerSecond\": 20\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "GET Tâche de rejeu inconnue → 404",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/batch/retry-failed/00000000-0000-0000-0000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "batch",
+                "retry-failed",
+                "00000000-0000-0000-0000-000000000000"
+              ]
+            },
+            "description": "Même réponse pour une tâche jamais créée et pour une tâche sortie de l'historique (50 dernières)."
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('404 Not Found', () => pm.response.to.have.status(404));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "PUT Statut absent du corps → 400",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/v1/messages/{{messageId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "messages",
+                "{{messageId}}",
+                "status"
+              ]
+            },
+            "description": "`@NotNull` sur `status`. À distinguer du 422 : ici le corps est invalide, là la transition est refusée.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"reason\": \"Motif sans statut cible\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('400 Bad Request', () => pm.response.to.have.status(400));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

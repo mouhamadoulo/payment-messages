@@ -1,0 +1,23 @@
+{
+  "messageId": "JDD-SWIFT-0002",
+  "messageType": "SWIFT_MT103",
+  "reference": "INT-2026-0726-0002",
+  "payment": {
+    "transactionId": "TX-20260726-000002",
+    "amount": 248900.00,
+    "currency": "USD",
+    "executionDate": "2026-07-28"
+  },
+  "debtor": {
+    "accountNumber": "FR7612345000099887766554",
+    "name": "Airbus Finance",
+    "bankCode": "BNPAFRPP"
+  },
+  "creditor": {
+    "accountNumber": "US64SVBK00700099887766",
+    "name": "Boeing Treasury",
+    "bankCode": "SVBKUS6S"
+  },
+  "status": "RECEIVED",
+  "createdAt": "2026-07-26T09:15:30"
+}

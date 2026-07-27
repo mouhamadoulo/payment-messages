@@ -1,59 +1,81 @@
-# Frontend
+# Frontend — Payment Messages
 
-This project was generated using [Angular CLI](https://github.com/angular/angular-cli) version 22.0.7.
+Application **Angular 22** standalone (sans NgModule), routes entièrement paresseuses, état en
+signaux, mode *zoneless*. Elle consulte et pilote les messages de paiement exposés par l'API
+Spring Boot du dépôt.
 
-## Development server
+Documentation détaillée : [`docs/architecture/architecture-frontend.md`](../docs/architecture/architecture-frontend.md).
 
-To start a local development server, run:
+## Prérequis
+
+- **Node.js 22** (la CI utilise cette version)
+- Un backend joignable sur `http://localhost:8080` pour le mode développement
+  (`docker compose up -d postgres ibm-mq` puis `./mvnw spring-boot:run` depuis `backend/`)
+
+## Serveur de développement
 
 ```bash
+npm install
 ng serve
 ```
 
-Once the server is running, open your browser and navigate to `http://localhost:4200/`. The application will automatically reload whenever you modify any of the source files.
+Application disponible sur `http://localhost:4200`, rechargée à chaque modification.
 
-## Code scaffolding
+Les services appellent des chemins relatifs (`/api/v1/…`) : le relais vers le backend est
+assuré par `proxy.conf.json`, déclaré dans `angular.json`. Un appel d'API qui répond `404`
+vient presque toujours de là — vérifier que le backend écoute bien sur `:8080`.
 
-Angular CLI includes powerful code scaffolding tools. To generate a new component, run:
-
-```bash
-ng generate component component-name
-```
-
-For a complete list of available schematics (such as `components`, `directives`, or `pipes`), run:
+## Tests
 
 ```bash
-ng generate --help
+npm run test                 # Vitest en mode observation
+npm run test -- --no-watch   # exécution unique (mode CI)
 ```
 
-## Building
+`--no-watch` est indispensable en intégration continue : sans lui le builder
+`@angular/build:unit-test` reste en observation et le job n'aboutit jamais.
 
-To build the project run:
+## Build de production
 
 ```bash
-ng build
+npm run build                # sortie dans dist/frontend/browser
 ```
 
-This will compile your project and store the build artifacts in the `dist/` directory. By default, the production build optimizes your application for performance and speed.
+Les budgets `initial` et `allScript` d'`angular.json` font échouer le build sur une régression
+de poids — `allScript` couvre la somme des lots différés, qu'un budget `initial` seul laisserait
+passer.
 
-## Running unit tests
-
-To execute unit tests with the [Vitest](https://vitest.dev/) test runner, use the following command:
+## Image de production
 
 ```bash
-ng test
+docker build -t payment-messages-frontend .
 ```
 
-## Running end-to-end tests
+Image multi-étapes `node:22-alpine` → `nginx:1.27-alpine` : nginx sert les fichiers statiques
+(assets précompressés au niveau 9, servis par `gzip_static`) et relaie `/api/` vers le service
+`backend`. Les en-têtes de sécurité vivent dans `security-headers.conf` et sont `include` dans
+**chaque** bloc `location` — `add_header` n'est pas cumulatif en nginx.
 
-For end-to-end (e2e) testing, run:
+Le plus simple reste `docker compose up -d` à la racine du dépôt : le service `frontend` y est
+construit et câblé au backend.
 
-```bash
-ng e2e
+## Structure
+
+```
+src/app/
+├── core/       # Singletons : intercepteurs, NotificationService, ThemeService, api.config
+├── features/   # messages/ (domaine) et simulation/ (dépôt de messages de test sur MQ)
+├── layout/     # header / sidebar / main-layout
+└── shared/     # status-badge, ui/, pipes/, config/, util/
 ```
 
-Angular CLI does not come with an end-to-end testing framework by default. You can choose one that suits your needs.
+## Conventions
 
-## Additional Resources
-
-For more information on using the Angular CLI, including detailed command references, visit the [Angular CLI Overview and Command Reference](https://angular.dev/tools/cli) page.
+- **`ChangeDetectionStrategy.OnPush` sur tous les composants** : en mode *zoneless*, un cycle
+  parcourt sinon les vues non `OnPush` alors qu'un seul signal a changé.
+- **L'état lu par un gabarit vit dans un signal.** Un champ mutable simple lié par `ngModel` ne
+  rafraîchit pas de façon fiable.
+- **Aucun filtre client** : statut, date, type et recherche partent au serveur, et les compteurs
+  des pastilles sont calculés sous les mêmes critères.
+- `shared/config/status.config.ts` recopie la machine à états du serveur
+  (`PaymentMessageStatus`) — **garder les deux synchronisées**.

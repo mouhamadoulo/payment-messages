@@ -1,4 +1,7 @@
-import { Component, input, output, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, output, computed, inject } from '@angular/core';
+import { toSignal } from '@angular/core/rxjs-interop';
+import { BreakpointObserver } from '@angular/cdk/layout';
+import { map } from 'rxjs';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { PaymentMessage } from '../../models/message.model';
@@ -6,9 +9,12 @@ import { Page } from '../../models/page.model';
 import { AutoAnimateDirective } from '../../../../shared/ui/auto-animate.directive';
 import { StatusBadgeComponent } from '../../../../shared/components/status-badge/status-badge.component';
 import { IconComponent } from '../../../../shared/ui/icon/icon.component';
-import { formatBytes, payloadSize } from '../../../../shared/util/payload.util';
+import { formatBytes, messagePayloadSize } from '../../../../shared/util/payload.util';
 
 export interface TablePageEvent { pageIndex: number; pageSize: number; }
+
+/** Bascule tableau / cartes. Doit rester alignée sur la règle CSS de la barre d'outils. */
+const MOBILE_QUERY = '(max-width: 700px)';
 
 interface Column { key: string; label: string; align: 'left' | 'right'; sortable: boolean; }
 
@@ -28,69 +34,94 @@ const COLUMNS: Column[] = [
   imports: [DatePipe, FormsModule, AutoAnimateDirective, StatusBadgeComponent, IconComponent],
   template: `
     <div class="card">
-      <div class="scroll">
-        <table>
-          <thead>
-            <tr>
-              @for (col of columns; track col.key) {
-                <th [class.right]="col.align === 'right'" [class.sortable]="col.sortable"
-                    [class.active]="sortKey() === col.key"
-                    (click)="col.sortable && sortChange.emit(col.key)">
-                  {{ col.label }}
-                  @if (sortKey() === col.key) { <span class="arrow">{{ sortDir() === 'asc' ? '▲' : '▼' }}</span> }
-                </th>
-              }
-              <th class="right"></th>
-            </tr>
-          </thead>
-          <tbody appAutoAnimate>
-            @for (m of messages(); track m.id) {
-              <tr [class.selected]="m.id === selectedId()" [class.flash]="m.id === flashId()"
-                  (click)="select.emit(m)">
-                <td class="mono link-like">{{ m.reference }}</td>
-                <td class="mono muted ellipsis">{{ m.messageId }}</td>
-                <td class="mono">{{ m.messageType }}</td>
-                <td><app-status-badge [status]="m.status" /></td>
-                <td class="mono right" [class.warn]="m.retryCount > 0">{{ m.retryCount }}</td>
-                <td class="mono right muted">{{ size(m) }}</td>
-                <td>
-                  <span class="mono">{{ m.receivedAt | date:'HH:mm:ss' }}</span>
-                  <span class="faint">{{ m.receivedAt | date:'dd/MM' }}</span>
-                </td>
-                <td class="right">
-                  <a class="open" [href]="'/messages/' + m.id" (click)="$event.preventDefault(); open.emit(m)">Détail</a>
-                </td>
-              </tr>
-            }
-          </tbody>
-        </table>
-      </div>
-
-      <div class="cards" appAutoAnimate>
-        @for (m of messages(); track m.id) {
-          <button class="mcard" [class.selected]="m.id === selectedId()"
-                  [class.flash]="m.id === flashId()" (click)="select.emit(m)">
-            <div class="mcard-top">
-              <span class="mono ref">{{ m.reference }}</span>
-              <app-status-badge [status]="m.status" />
-            </div>
-            <div class="mcard-meta">
-              <span class="mono">{{ m.messageType }}</span>
-              <span class="dotsep">·</span>
-              <span class="mono muted">{{ size(m) }}</span>
-              @if (m.retryCount > 0) {
+      @if (isMobile()) {
+        <div class="cards" appAutoAnimate>
+          @for (row of rows(); track row.m.id) {
+            <button class="mcard" [class.selected]="row.m.id === selectedId()"
+                    [class.flash]="row.m.id === flashId()" (click)="select.emit(row.m)">
+              <div class="mcard-top">
+                <span class="mono ref">{{ row.m.reference }}</span>
+                <app-status-badge [status]="row.m.status" />
+              </div>
+              <div class="mcard-meta">
+                <span class="mono">{{ row.m.messageType }}</span>
                 <span class="dotsep">·</span>
-                <span class="mono warn">{{ m.retryCount }} tent.</span>
+                <span class="mono muted">{{ row.size }}</span>
+                @if (row.m.retryCount > 0) {
+                  <span class="dotsep">·</span>
+                  <span class="mono warn">{{ row.m.retryCount }} tent.</span>
+                }
+              </div>
+              <div class="mcard-foot">
+                <span class="mono faint">{{ row.m.receivedAt | date:'dd/MM · HH:mm:ss' }}</span>
+                <a class="open" [href]="'/messages/' + row.m.id"
+                   (click)="$event.preventDefault(); $event.stopPropagation(); open.emit(row.m)">Détail</a>
+              </div>
+            </button>
+          }
+        </div>
+      } @else {
+        <div class="scroll">
+          <table>
+            <thead>
+              <tr>
+                @for (col of columns; track col.key) {
+                  <th [class.right]="col.align === 'right'" [class.sortable]="col.sortable"
+                      [class.active]="sortKey() === col.key"
+                      [attr.aria-sort]="col.sortable ? ariaSort(col.key) : null">
+                    @if (col.sortable) {
+                      <!-- Le tri est une commande : il lui faut un contrôle réel, atteignable
+                           au clavier et annoncé comme tel. -->
+                      <button type="button" class="th-btn" (click)="sortChange.emit(col.key)"
+                              [attr.aria-label]="'Trier par ' + col.label">
+                        {{ col.label }}
+                        @if (sortKey() === col.key) { <span class="arrow" aria-hidden="true">{{ sortDir() === 'asc' ? '▲' : '▼' }}</span> }
+                      </button>
+                    } @else {
+                      {{ col.label }}
+                    }
+                  </th>
+                }
+                <th class="right"><span class="sr-only">Actions</span></th>
+              </tr>
+            </thead>
+            <tbody appAutoAnimate>
+              @for (row of rows(); track row.m.id) {
+                <tr [class.selected]="row.m.id === selectedId()" [class.flash]="row.m.id === flashId()"
+                    (click)="select.emit(row.m)">
+                  <!--
+                    La ligne entière reste cliquable à la souris, mais l'action passe par un
+                    bouton réel : une ligne porteuse d'un simple gestionnaire de clic n'est ni
+                    focalisable ni activable au clavier, et aucun rôle ARIA ne la rend
+                    interactive sans casser la sémantique du tableau. L'arrêt de la propagation
+                    évite la double émission lorsque le clic vient du bouton lui-même.
+                  -->
+                  <td>
+                    <button type="button" class="cell-btn mono link-like"
+                            (click)="$event.stopPropagation(); select.emit(row.m)"
+                            [attr.aria-label]="'Ouvrir le message ' + row.m.reference">
+                      {{ row.m.reference }}
+                    </button>
+                  </td>
+                  <td class="mono muted ellipsis">{{ row.m.messageId }}</td>
+                  <td class="mono">{{ row.m.messageType }}</td>
+                  <td><app-status-badge [status]="row.m.status" /></td>
+                  <td class="mono right" [class.warn]="row.m.retryCount > 0">{{ row.m.retryCount }}</td>
+                  <td class="mono right muted">{{ row.size }}</td>
+                  <td>
+                    <span class="mono">{{ row.m.receivedAt | date:'HH:mm:ss' }}</span>
+                    <span class="faint">{{ row.m.receivedAt | date:'dd/MM' }}</span>
+                  </td>
+                  <td class="right">
+                    <a class="open" [href]="'/messages/' + row.m.id"
+                       (click)="$event.preventDefault(); open.emit(row.m)">Détail</a>
+                  </td>
+                </tr>
               }
-            </div>
-            <div class="mcard-foot">
-              <span class="mono faint">{{ m.receivedAt | date:'dd/MM · HH:mm:ss' }}</span>
-              <a class="open" [href]="'/messages/' + m.id"
-                 (click)="$event.preventDefault(); $event.stopPropagation(); open.emit(m)">Détail</a>
-            </div>
-          </button>
-        }
-      </div>
+            </tbody>
+          </table>
+        </div>
+      }
 
       <div class="footer">
         <span class="range">{{ rangeLabel() }}</span>
@@ -121,11 +152,23 @@ const COLUMNS: Column[] = [
     th { text-align: left; padding: 12px 13px; font-size: .655rem; font-weight: 700; letter-spacing: .05em;
          text-transform: uppercase; color: var(--muted-2); border-bottom: 1px solid var(--border);
          white-space: nowrap; background: var(--surface-head); user-select: none; }
-    th.sortable { cursor: pointer; }
+    th.sortable { cursor: pointer; padding: 0; }
     th.sortable:hover { color: var(--text-2); }
     th.active { color: var(--text); }
     th.right, td.right { text-align: right; }
     .arrow { color: var(--primary); }
+
+    /* Le bouton occupe toute la cellule : la zone cliquable reste celle de l'en-tête. */
+    .th-btn { width: 100%; padding: 12px 13px; border: 0; background: none; color: inherit;
+              font: inherit; letter-spacing: inherit; text-transform: inherit; text-align: inherit;
+              cursor: pointer; }
+    th.right .th-btn { text-align: right; }
+    .cell-btn { border: 0; background: none; padding: 0; font: inherit; cursor: pointer;
+                text-align: left; }
+    .th-btn:focus-visible, .cell-btn:focus-visible, .open:focus-visible {
+      outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 4px; }
+    .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+               overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
     td { padding: 11px 13px; font-size: .8rem; border-bottom: 1px solid var(--border-soft);
          color: var(--text-2); white-space: nowrap; }
@@ -152,8 +195,8 @@ const COLUMNS: Column[] = [
     tbody tr:hover td.right:last-child { background: var(--row-hover); }
     tbody tr.selected td.right:last-child { background: var(--primary-soft); }
 
-    /* --- vue cartes (mobile) --- */
-    .cards { display: none; flex-direction: column; }
+    /* --- vue cartes (mobile) : rendue seulement sous le point de rupture --- */
+    .cards { display: flex; flex-direction: column; }
     .mcard { display: flex; flex-direction: column; gap: 9px; text-align: left; width: 100%;
              padding: 14px 16px; border: 0; border-bottom: 1px solid var(--border-soft);
              background: var(--surface); color: var(--text-2); cursor: pointer; font: inherit; }
@@ -168,11 +211,6 @@ const COLUMNS: Column[] = [
     .mcard-foot .open { font-size: .8rem; font-weight: 600; padding: 8px 14px; border-radius: var(--radius-ctl);
              background: var(--primary-soft); color: var(--primary); }
 
-    @media (max-width: 700px) {
-      .scroll { display: none; }
-      .cards { display: flex; }
-    }
-
     .footer { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3);
               padding: 13px 18px; border-top: 1px solid var(--border-soft); background: var(--surface-head);
               flex-wrap: wrap; }
@@ -186,7 +224,8 @@ const COLUMNS: Column[] = [
     .nav:hover:not(:disabled) { background: var(--bg); color: var(--primary); }
     .nav:disabled { opacity: .4; cursor: not-allowed; }
     .page { font-size: .78rem; color: var(--text-2); min-width: 56px; text-align: center; }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MessageTableComponent {
   readonly messages = input.required<PaymentMessage[]>();
@@ -204,6 +243,22 @@ export class MessageTableComponent {
 
   protected readonly columns = COLUMNS;
   protected readonly sizes = [10, 20, 50, 100];
+
+  /**
+   * Le tableau et la liste de cartes étaient tous deux rendus, le CSS masquant l'un ou
+   * l'autre : DOM et liaisons doublés en permanence. Un signal de point de rupture ne rend
+   * que la vue affichée.
+   */
+  protected readonly isMobile = toSignal(
+    inject(BreakpointObserver).observe(MOBILE_QUERY).pipe(map((state) => state.matches)),
+    { initialValue: false });
+
+  /**
+   * Modèle de ligne mémorisé : la taille formatée était recalculée à chaque rendu et pour
+   * chaque vue. Elle ne change qu'avec la page reçue.
+   */
+  protected readonly rows = computed(() =>
+    this.messages().map((m) => ({ m, size: formatBytes(messagePayloadSize(m)) })));
 
   protected readonly sortKey = computed(() => this.sort().split(',')[0]);
   protected readonly sortDir = computed(() => this.sort().split(',')[1] ?? 'desc');
@@ -224,7 +279,11 @@ export class MessageTableComponent {
     return `Affichage ${start}–${end} sur ${p.totalElements} messages`;
   });
 
-  protected size(m: PaymentMessage) { return formatBytes(payloadSize(m.payload)); }
+  /** `aria-sort` de l'en-tête : seule la colonne triée porte une direction. */
+  protected ariaSort(key: string): 'ascending' | 'descending' | 'none' {
+    if (this.sortKey() !== key) return 'none';
+    return this.sortDir() === 'asc' ? 'ascending' : 'descending';
+  }
 
   protected go(delta: number) {
     const p = this.page();

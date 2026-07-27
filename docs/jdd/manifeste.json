@@ -1,0 +1,275 @@
+{
+  "description": "Attendu de chaque jeu de données. « deserialisation » et « validation » décrivent les deux étapes du consommateur ; « statutAttendu » ce qui doit apparaître dans GET /api/v1/messages.",
+  "contrat": "backend/src/main/java/com/bank/paymentmessages/dto/mq/PaymentMessageEvent.java",
+  "jeux": [
+    {
+      "fichier": "01-nominal/01-virement-sepa.json",
+      "cas": "Virement SEPA complet, cas nominal",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "01-nominal/02-virement-swift-mt103.json",
+      "cas": "Virement international, devise étrangère et montant élevé",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "01-nominal/03-prelevement-sepa.json",
+      "cas": "Prélèvement, petit montant de flux de masse",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "01-nominal/04-confirmation-paiement.json",
+      "cas": "Confirmation portant la même référence métier que le virement 01 — deux messages, une opération",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "01-nominal/05-notification-statut.json",
+      "cas": "Notification de statut : ni débiteur ni créancier, les deux sont facultatifs",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "01-nominal/06-champs-obligatoires-seuls.json",
+      "cas": "Le strict minimum : les cinq champs obligatoires, sans debtor / creditor / createdAt",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "02-rejet-deserialisation/01-json-tronque.json",
+      "cas": "Objet tronqué en plein milieu — flux coupé",
+      "deserialisation": "ko",
+      "validation": "non atteinte",
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "02-rejet-deserialisation/02-guillemets-manquants.json",
+      "cas": "Clés et valeurs sans guillemets — ce qui sort souvent d'un émetteur qui concatène des chaînes",
+      "deserialisation": "ko",
+      "validation": "non atteinte",
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "02-rejet-deserialisation/03-statut-inconnu.json",
+      "cas": "Valeur d'enum hors de PaymentMessageStatus — rejeté à la lecture, pas à la validation",
+      "deserialisation": "ko",
+      "validation": "non atteinte",
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "02-rejet-deserialisation/04-montant-non-numerique.json",
+      "cas": "Montant formaté à la française dans une chaîne — BigDecimal ne le lit pas",
+      "deserialisation": "ko",
+      "validation": "non atteinte",
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "02-rejet-deserialisation/05-date-execution-jj-mm-aaaa.json",
+      "cas": "executionDate est une LocalDate ISO (AAAA-MM-JJ) : le format français est refusé",
+      "deserialisation": "ko",
+      "validation": "non atteinte",
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "02-rejet-deserialisation/06-createdat-avec-decalage-horaire.json",
+      "cas": "Le piège classique : createdAt est une LocalDateTime, un décalage horaire la fait échouer — alors que tous les horodatages de l'API REST en portent un",
+      "deserialisation": "ko",
+      "validation": "non atteinte",
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "02-rejet-deserialisation/07-tableau-au-lieu-d-objet.json",
+      "cas": "Un lot envoyé comme un seul message : le consommateur attend un objet, pas un tableau",
+      "deserialisation": "ko",
+      "validation": "non atteinte",
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "03-rejet-validation/01-message-id-absent.json",
+      "cas": "messageId absent — la ligne FAILED reçoit un identifiant de repli UNKNOWN-<uuid>",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "messageId"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "03-rejet-validation/02-message-id-vide.json",
+      "cas": "messageId présent mais vide — @NotBlank, pas @NotNull",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "messageId"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "03-rejet-validation/03-reference-blanche.json",
+      "cas": "reference réduite à des espaces — @NotBlank les considère comme vide",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "reference"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "03-rejet-validation/04-message-type-absent.json",
+      "cas": "messageType absent — le type sert de filtre serveur, il est obligatoire",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "messageType"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "03-rejet-validation/05-payment-absent.json",
+      "cas": "Bloc payment absent — @NotNull sur le bloc entier",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "payment"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "03-rejet-validation/06-status-absent.json",
+      "cas": "status absent — obligatoire dans le contrat de la file, bien que le mapper sache retomber sur RECEIVED",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "status"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "03-rejet-validation/07-tous-obligatoires-absents.json",
+      "cas": "Les cinq champs obligatoires manquent : le motif conservé en base les énumère tous",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "messageId",
+        "messageType",
+        "reference",
+        "payment",
+        "status"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "04-idempotence/01-original.json",
+      "cas": "Message de référence du scénario de déduplication",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "04-idempotence/02-doublon-meme-message-id.json",
+      "cas": "Même messageId que 01, tout le reste diffère : rien n'est écrit, la ligne d'origine n'est pas mise à jour. À envoyer avec uniqueIds = false, sinon le serveur réécrit le messageId et le doublon n'en est plus un",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "aucune ligne créée (doublon)"
+    },
+    {
+      "fichier": "05-statut-a-l-arrivee/01-arrive-en-processed.json",
+      "cas": "Le statut du payload est repris tel quel par le mapper : le message naît PROCESSED, donc terminal, sans être jamais passé par RECEIVED",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "PROCESSED"
+    },
+    {
+      "fichier": "05-statut-a-l-arrivee/02-arrive-en-failed.json",
+      "cas": "Naît FAILED, donc immédiatement rejouable par POST /{id}/retry — le moyen le plus court de peupler le rejeu et la bascule DLQ",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "05-statut-a-l-arrivee/03-arrive-en-dead-letter.json",
+      "cas": "Naît DEAD_LETTER avec dlqPublishedAt à NULL : DeadLetterRecoveryJob voit une divergence base / broker et republie le payload sur la DLQ applicative à la passe suivante (60 s par défaut)",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "DEAD_LETTER"
+    },
+    {
+      "fichier": "06-limites-et-pieges/01-payment-vide-rejete.json",
+      "cas": "payment: {} est rejeté : PaymentMessageEvent.payment porte @NotNull ET @Valid, la cascade descend dans le bloc et les quatre champs de Payment manquent. Ce message entrait en base avant l'ajout de la cascade",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "payment.transactionId",
+        "payment.amount",
+        "payment.currency",
+        "payment.executionDate"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "06-limites-et-pieges/02-montant-negatif-rejete.json",
+      "cas": "Montant négatif rejeté par le @Positive de Payment.amount, atteint grâce à la même cascade",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "payment.amount"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "06-limites-et-pieges/03-champs-inconnus-toleres.json",
+      "cas": "Champs inconnus du contrat : tolérés (FAIL_ON_UNKNOWN_PROPERTIES désactivé). Un émetteur amont qui enrichit son message ne casse pas l'ingestion — mais le payload brut, lui, est conservé intégralement",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "06-limites-et-pieges/04-unicode-et-emoji.json",
+      "cas": "Accents, idéogrammes et emoji : payloadSize compte des OCTETS UTF-8, pas des caractères — il sera nettement supérieur à la longueur affichée",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "06-limites-et-pieges/05-montant-haute-precision.json",
+      "cas": "Montant à 5 décimales et à 14 chiffres : BigDecimal le lit sans perte, contrairement à un double",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED"
+    },
+    {
+      "fichier": "06-limites-et-pieges/06-message-id-trop-long-rejete.json",
+      "cas": "messageId de plus de 255 caractères, arrêté par @Size(max = 255) — la longueur des colonnes texte. La ligne FAILED porte le messageId tronqué à 255 par PaymentMessageMapper.toFailedEntity, sinon l'écriture du rejet casserait sur la même colonne. Avant correction, ce fichier était un MESSAGE EMPOISONNÉ : validation passée, INSERT en échec, violation d'intégrité relancée donc prise pour transitoire, redélivrance en boucle jusqu'à BOTHRESH",
+      "deserialisation": "ok",
+      "validation": "ko",
+      "violations": [
+        "messageId"
+      ],
+      "statutAttendu": "FAILED"
+    },
+    {
+      "fichier": "07-volumetrie/gabarit.json",
+      "cas": "Gabarit à envoyer avec count élevé et uniqueIds = true : c'est le serveur qui réécrit messageId à chaque copie",
+      "deserialisation": "ok",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED (une ligne par copie)"
+    },
+    {
+      "fichier": "07-volumetrie/lot-50-messages.ndjson",
+      "cas": "50 messages, un par ligne (NDJSON) : cinq types, cinq devises, montants et statuts variés — de quoi remplir le dashboard. Une ligne = un message ; le fichier entier n'est PAS un payload valide",
+      "deserialisation": "ok (ligne par ligne)",
+      "validation": "ok",
+      "statutAttendu": "RECEIVED / PROCESSED / FAILED selon la ligne",
+      "ndjson": true
+    }
+  ]
+}

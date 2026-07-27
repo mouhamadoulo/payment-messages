@@ -1,4 +1,7 @@
-import { AfterViewInit, Component, OnInit, inject, signal, computed, viewChild } from '@angular/core';
+import {
+  AfterViewInit, ChangeDetectionStrategy, Component, DestroyRef, OnInit, inject, signal, computed, viewChild,
+} from '@angular/core';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, Router } from '@angular/router';
 import { MatDialog } from '@angular/material/dialog';
 import { MessageService, DEFAULT_SORT } from '../../services/message.service';
@@ -6,7 +9,7 @@ import { MessageFilterComponent } from '../../components/message-filter/message-
 import { MessageTableComponent, TablePageEvent } from '../../components/message-table/message-table.component';
 import { MessageDrawerComponent } from '../../components/message-drawer/message-drawer.component';
 import { MessageFilters, PaymentMessage, PaymentMessageStatus } from '../../models/message.model';
-import { payloadSize } from '../../../../shared/util/payload.util';
+import { messagePayloadSize } from '../../../../shared/util/payload.util';
 
 @Component({
   selector: 'app-message-list',
@@ -15,11 +18,23 @@ import { payloadSize } from '../../../../shared/util/payload.util';
   template: `
     <div class="page">
       <app-message-filter
-        [counts]="counts()" [total]="svc.total()" [types]="types()"
+        [counts]="counts()" [total]="svc.total()" [types]="svc.messageTypes()"
         (filterChange)="onFilter($event)"
-        (typeChange)="typeFilter.set($event)"
-        (searchChange)="svc.searchTerm.set($event)"
         (exportCsv)="exportCsv()" />
+
+      <!--
+        Le service note l'échec du chargement mais la liste n'en montrait rien : les lignes
+        précédentes restaient affichées, et un clic sur une pastille semblait n'avoir aucun
+        effet. Le bandeau reste au-dessus du tableau — perdre les lignes déjà chargées sur
+        un simple rafraîchissement de fond raté serait pire que l'avertir.
+      -->
+      @if (svc.error()) {
+        <div class="alert" role="alert">
+          <span>Le chargement des messages a échoué : les lignes affichées ne correspondent
+                pas forcément aux filtres sélectionnés.</span>
+          <button class="retry" (click)="reload()">Réessayer</button>
+        </div>
+      }
 
       @if (svc.loading()) {
         <div class="card sk-table" aria-label="Chargement des messages" role="status">
@@ -32,11 +47,11 @@ import { payloadSize } from '../../../../shared/util/payload.util';
             </div>
           }
         </div>
-      } @else if (!rows().length) {
+      } @else if (!svc.messages().length) {
         <div class="state">Aucun message ne correspond aux filtres</div>
       } @else {
         <app-message-table
-          [messages]="rows()" [page]="svc.currentPage()" [sort]="sort()"
+          [messages]="svc.messages()" [page]="svc.currentPage()" [sort]="sort()"
           [selectedId]="svc.currentMessage()?.id ?? null"
           [flashId]="svc.changedId()"
           (sortChange)="onSort($event)"
@@ -45,12 +60,19 @@ import { payloadSize } from '../../../../shared/util/payload.util';
           (open)="goToDetail($event)" />
       }
 
-      <app-message-drawer
-        [message]="svc.currentMessage()"
-        (close)="svc.clearCurrent()"
-        (retry)="onRetry()"
-        (changeStatus)="onChangeStatus()"
-        (delete)="onDelete()" />
+      <!--
+        Le tiroir n'est monté qu'à la première ouverture : son gabarit, ses styles et l'analyse
+        du payload ne sont plus dans le lot de la page de liste alors que la plupart des visites
+        n'ouvrent aucun message.
+      -->
+      @defer (when svc.currentMessage() !== null) {
+        <app-message-drawer
+          [message]="svc.currentMessage()"
+          (close)="svc.clearCurrent()"
+          (retry)="onRetry()"
+          (changeStatus)="onChangeStatus()"
+          (delete)="onDelete()" />
+      }
     </div>
   `,
   styles: [`
@@ -59,6 +81,15 @@ import { payloadSize } from '../../../../shared/util/payload.util';
     .state { text-align: center; color: var(--muted-2); font-size: .85rem;
              background: var(--surface); border: 1px solid var(--border);
              border-radius: var(--radius-card); padding: var(--space-6); }
+
+    .alert { display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+             background: var(--danger-soft); border: 1px solid var(--danger-border);
+             border-radius: var(--radius-card); padding: 12px 16px;
+             font-size: .82rem; color: var(--danger); }
+    .retry { margin-left: auto; padding: 7px 14px; border: 1px solid var(--danger);
+             border-radius: var(--radius-ctl); background: var(--surface); color: var(--danger);
+             font-size: .78rem; font-weight: 600; cursor: pointer; }
+    .retry:hover { background: var(--danger); color: #fff; }
 
     .sk-table { background: var(--surface); border: 1px solid var(--border);
                 border-radius: var(--radius-card); padding: 0; overflow: hidden; }
@@ -73,45 +104,49 @@ import { payloadSize } from '../../../../shared/util/payload.util';
       .sk-row { grid-template-columns: 1.4fr 1fr .7fr; }
       .sk-row .skeleton:nth-child(n+4) { display: none; }
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MessageListPage implements OnInit, AfterViewInit {
   protected readonly svc = inject(MessageService);
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   private readonly dialog = inject(MatDialog);
+  private readonly destroyRef = inject(DestroyRef);
   private readonly filterCmp = viewChild(MessageFilterComponent);
 
   protected readonly sort = signal(DEFAULT_SORT);
-  protected readonly typeFilter = signal('');
   protected readonly skRows = Array(8);
   protected readonly skCols = Array(8);
   private filters: MessageFilters = {};
   private pageIndex = 0;
   private pageSize = 20;
+  /** la première émission des query params doit charger, même sans statut demandé */
+  private started = false;
 
+  /** compteurs par statut, calculés par le serveur sous les autres filtres actifs */
   protected readonly counts = computed(() => (this.svc.stats() as Record<string, number>) ?? {});
-
-  protected readonly types = computed(() =>
-    [...new Set(this.svc.messages().map((m) => m.messageType).filter(Boolean))].sort());
-
-  /** page serveur, puis filtres client (recherche plein texte + type) */
-  protected readonly rows = computed(() => {
-    const type = this.typeFilter();
-    const list = this.svc.filteredMessages();
-    return type ? list.filter((m) => m.messageType === type) : list;
-  });
 
   ngOnInit() {
     this.svc.clearCurrent();
-    this.route.queryParamMap.subscribe((q) => {
-      const status = q.get('status') as PaymentMessageStatus | null;
-      this.filters = status ? { status } : {};
+    // `takeUntilDestroyed` explicite : la route complète bien son flux, mais l'abonnement
+    // s'aligne sur celui du bandeau plutôt que de dépendre de ce détail. Hors contexte
+    // d'injection (ngOnInit), le `DestroyRef` doit être fourni.
+    this.route.queryParamMap.pipe(takeUntilDestroyed(this.destroyRef)).subscribe((q) => {
+      const status = (q.get('status') as PaymentMessageStatus | null) ?? undefined;
+      // Un clic sur une pastille écrit lui-même le paramètre dans l'URL : sans ce garde,
+      // la navigation qui en découle rejouerait la requête et — surtout — écraserait le
+      // type, la date et la recherche que la barre venait d'émettre.
+      if (this.started && status === this.filters.status) {
+        return;
+      }
+      this.started = true;
+      this.filters = { ...this.filters, status };
       this.pageIndex = 0;
-      this.filterCmp()?.setStatus(status ?? undefined);
+      this.filterCmp()?.setStatus(status);
       this.load();
     });
-    this.svc.loadStats();
+    this.svc.loadMessageTypes();
   }
 
   /** la première émission des query params précède l'initialisation de la vue */
@@ -119,13 +154,36 @@ export class MessageListPage implements OnInit, AfterViewInit {
     this.filterCmp()?.setStatus(this.filters.status);
   }
 
+  /**
+   * Liste et compteurs partent du même prédicat : les pastilles annoncent ce que donnerait
+   * un clic dessus, au lieu de compter toute la table pendant que le tableau n'affiche
+   * qu'un sous-ensemble filtré.
+   */
   private load() {
     this.svc.loadMessages(this.filters, this.pageIndex, this.pageSize, this.sort());
+    this.svc.loadStats(this.filters);
   }
 
+  /**
+   * Le statut sélectionné est reporté dans l'URL : un rechargement, un favori ou un retour
+   * arrière retrouvent la liste filtrée au lieu de repartir sur la table entière. Les trois
+   * autres critères restent en mémoire de page — ils n'ont pas vocation à être partagés et
+   * les mettre dans l'URL exposerait la recherche libre.
+   */
   protected onFilter(filters: MessageFilters) {
     this.filters = filters;
     this.pageIndex = 0;
+    this.router.navigate([], {
+      relativeTo: this.route,
+      queryParams: { status: filters.status ?? null },
+      queryParamsHandling: 'merge',
+      replaceUrl: true,
+    });
+    this.load();
+  }
+
+  /** Nouvelle tentative après un échec de chargement, avec les mêmes critères. */
+  protected reload() {
     this.load();
   }
 
@@ -155,9 +213,9 @@ export class MessageListPage implements OnInit, AfterViewInit {
     const msg = this.svc.currentMessage();
     if (!msg) return;
     const { SelectStatusDialog } = await import('../message-detail/select-status.dialog');
-    this.dialog.open(SelectStatusDialog).afterClosed()
-      .subscribe((status: PaymentMessageStatus) => {
-        if (status) this.svc.updateStatus(msg.id, status);
+    this.dialog.open(SelectStatusDialog, { data: { current: msg.status } }).afterClosed()
+      .subscribe((result?: { status: PaymentMessageStatus; reason?: string }) => {
+        if (result) this.svc.updateStatus(msg.id, result.status, result.reason);
       });
   }
 
@@ -172,7 +230,7 @@ export class MessageListPage implements OnInit, AfterViewInit {
   }
 
   protected exportCsv() {
-    const rows = this.rows();
+    const rows = this.svc.messages();
     if (!rows.length) return;
     const header = ['id', 'reference', 'messageId', 'messageType', 'status', 'retryCount',
                     'payloadBytes', 'receivedAt', 'updatedAt', 'errorMessage'];
@@ -181,7 +239,7 @@ export class MessageListPage implements OnInit, AfterViewInit {
       header.join(';'),
       ...rows.map((m) => [
         m.id, m.reference, m.messageId, m.messageType, m.status, m.retryCount,
-        payloadSize(m.payload), m.receivedAt, m.updatedAt, m.errorMessage,
+        messagePayloadSize(m), m.receivedAt, m.updatedAt, m.errorMessage,
       ].map(escape).join(';')),
     ].join('\r\n');
 

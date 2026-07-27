@@ -1,8 +1,8 @@
-import { Component, output, inject, signal, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, output, inject, signal, computed } from '@angular/core';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ActivatedRoute, NavigationEnd, Router } from '@angular/router';
 import { filter, startWith } from 'rxjs';
-import { MessageService } from '../../features/messages/services/message.service';
+import { AUTO_REFRESH_MS, MessageService } from '../../features/messages/services/message.service';
 import { ThemeService } from '../../core/services/theme.service';
 import { IconComponent } from '../../shared/ui/icon/icon.component';
 
@@ -22,11 +22,15 @@ import { IconComponent } from '../../shared/ui/icon/icon.component';
       </div>
 
       <div class="right">
-        <div class="live" [title]="'Dernier chargement de données'">
+        <button class="live" [class.paused]="!svc.autoRefresh()" (click)="toggleAutoRefresh()"
+                [title]="svc.autoRefresh()
+                  ? 'Rafraîchissement automatique toutes les ' + refreshSeconds() + ' s — cliquer pour suspendre'
+                  : 'Rafraîchissement automatique suspendu — cliquer pour reprendre'"
+                [attr.aria-pressed]="svc.autoRefresh()">
           <span class="dot"></span>
-          <span class="live-label">Données</span>
+          <span class="live-label">{{ svc.autoRefresh() ? 'Auto' : 'Figé' }}</span>
           <span class="live-time">{{ updatedAt() }}</span>
-        </div>
+        </button>
         <button class="icon-btn" (click)="theme.toggle()"
                 [title]="isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'"
                 [attr.aria-label]="isDark() ? 'Passer en mode clair' : 'Passer en mode sombre'">
@@ -49,10 +53,14 @@ import { IconComponent } from '../../shared/ui/icon/icon.component';
     .right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
 
     .live { display: flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: var(--radius-pill);
-            background: var(--live-bg); border: 1px solid var(--live-border); }
+            background: var(--live-bg); border: 1px solid var(--live-border); cursor: pointer; font: inherit; }
     .live .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); }
     .live-label { font-size: .75rem; font-weight: 600; color: var(--success); }
     .live-time { font-size: .75rem; color: var(--live-text); font-family: var(--font-mono); }
+    /* Suspendu : la pastille cesse de battre, elle ne peut plus promettre de fraîcheur. */
+    .live.paused { background: var(--surface); border-color: var(--ctl-border); }
+    .live.paused .dot { background: var(--muted-2); }
+    .live.paused .live-label { color: var(--muted-2); }
 
     .icon-btn { width: 38px; height: 38px; flex: none; border-radius: var(--radius-ctl);
                 border: 1px solid var(--ctl-border); background: var(--surface); color: var(--muted);
@@ -60,13 +68,16 @@ import { IconComponent } from '../../shared/ui/icon/icon.component';
     .icon-btn:hover { background: var(--bg); color: var(--primary); }
     .hamburger { display: none; }
 
-    @media (prefers-reduced-motion: no-preference) { .live .dot { animation: mq-pulse 1.8s infinite; } }
+    @media (prefers-reduced-motion: no-preference) {
+      .live:not(.paused) .dot { animation: mq-pulse 1.8s infinite; }
+    }
     @media (max-width: 900px) {
       .bar { padding: 0 var(--space-4); gap: var(--space-3); }
       .hamburger { display: grid; }
       .live { display: none; }
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class HeaderComponent {
   readonly toggleMenu = output<void>();
@@ -96,7 +107,19 @@ export class HeaderComponent {
       });
   }
 
+  protected readonly refreshSeconds = computed(() => AUTO_REFRESH_MS / 1000);
+
   protected refresh() {
     this.svc.refreshAll();
+  }
+
+  /**
+   * La pastille n'annonce plus un temps réel inexistant : elle pilote le rafraîchissement
+   * périodique et indique quand l'écran est volontairement figé.
+   */
+  protected toggleAutoRefresh() {
+    const enabled = !this.svc.autoRefresh();
+    this.svc.autoRefresh.set(enabled);
+    if (enabled) this.svc.refreshAll(true);
   }
 }

@@ -10,14 +10,53 @@ spring:
     username: ${DB_USER}
     password: ${DB_PASSWORD}
     driver-class-name: org.postgresql.Driver
+    hikari:
+      # Doit couvrir la concurrence JMS max + les threads HTTP touchant la base,
+      # sans dépasser max_connections côté PostgreSQL.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:20}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
+      connection-timeout: 3000
+      leak-detection-threshold: 20000
 
   jpa:
     hibernate:
-      ddl-auto: ${JPA_DDL_AUTO}
+      # Le schéma est dérivé des entités par Hibernate : `update` crée ce qui manque
+      # (tables, colonnes, index déclarés sur @Table) au démarrage. Sur un environnement
+      # où le schéma est posé en amont, passer JPA_DDL_AUTO à `validate`.
+      ddl-auto: ${JPA_DDL_AUTO:update}
+    properties:
+      hibernate:
+        order_inserts: true
+        order_updates: true
+        jdbc:
+          batch_size: 50
+
+  cache:
+    # messageStats : agrégat par statut ; dashboardStats : agrégats du tableau de bord
+    # (volume horaire, types, tentatives, alertes) ; messageTypes : types distincts.
+    cache-names: messageStats,dashboardStats,messageTypes
+    caffeine:
+      spec: maximumSize=16,expireAfterWrite=${STATS_CACHE_TTL:15s},recordStats
 
   jms:
     listener:
-      acknowledge-mode: auto
+      session:
+        transacted: true          # explicite : rollback = redélivrance
+      min-concurrency: ${MQ_MIN_CONCURRENCY:5}
+      max-concurrency: ${MQ_MAX_CONCURRENCY:10}
+      receive-timeout: 5s
+
+  # Borne haute de pagination : sans elle, ?size=100000 était accepté tel quel et une
+  # seule requête pouvait ramener toute la table.
+  data:
+    web:
+      pageable:
+        default-page-size: 20
+        max-page-size: ${MAX_PAGE_SIZE:200}
+
+  mvc:
+    async:
+      request-timeout: ${REQUEST_TIMEOUT:15s}
 
 ibm:
   mq:
@@ -30,25 +69,100 @@ ibm:
     queue: ${MQ_QUEUE}
     dlq-queue: ${MQ_DLQ_QUEUE}
     max-retries: ${MQ_MAX_RETRIES}
+    dlq-recovery:
+      enabled: ${MQ_DLQ_RECOVERY_ENABLED:true}
+      interval: ${MQ_DLQ_RECOVERY_INTERVAL:60000}
+      batch-size: ${MQ_DLQ_RECOVERY_BATCH_SIZE:100}
 
+
+app:
+  # Origines admises en CORS. En dev comme en conteneur le front passe par un proxy de même
+  # origine ; la liste ne sert qu'aux appels directs au port de l'API.
+  cors:
+    allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:4200}
+
+  # Cache HTTP des lectures. À garder aligné sur STATS_CACHE_TTL (cache serveur) : au-delà,
+  # le client conserverait un agrégat que le serveur a déjà recalculé.
+  http-cache:
+    stats-ttl: ${STATS_CACHE_TTL:15s}
+
+  # Rejeu massif des messages FAILED : lots bornés, exécutés en tâche de fond.
+  batch-retry:
+    batch-size: ${BATCH_RETRY_SIZE:500}
+    max-messages: ${BATCH_RETRY_MAX:100000}
+
+  # Simulation d'envoi : dépôt de messages de test sur la file d'entrée depuis l'IHM.
+  # Les bornes sont serveur — l'IHM les lit pour cadrer sa saisie, elle ne les fixe pas.
+  # À couper sur un environnement où la file d'entrée porte un vrai flux.
+  simulation:
+    enabled: ${SIMULATION_ENABLED:true}
+    max-count: ${SIMULATION_MAX_COUNT:1000}
+    max-rate: ${SIMULATION_MAX_RATE:200}
+
+  # Rétention : purge planifiée des messages PROCESSED. Désactivée par défaut,
+  # la suppression étant irréversible (cf. MessageRetentionJob).
+  retention:
+    enabled: ${RETENTION_ENABLED:false}
+    processed-days: ${RETENTION_PROCESSED_DAYS:90}
+    batch-size: ${RETENTION_BATCH_SIZE:500}
+    max-per-run: ${RETENTION_MAX_PER_RUN:50000}
+    cron: ${RETENTION_CRON:0 30 3 * * *}
 
 server:
   port: ${SERVER_PORT}
+  # Les réponses de liste et d'agrégat sont du JSON très répétitif : la compression divise
+  # le volume transféré par un facteur 5 à 10 pour un coût CPU négligeable.
+  compression:
+    enabled: true
+    mime-types: application/json,application/problem+json,text/plain,text/css,text/html,application/javascript
+    min-response-size: 1024
+  tomcat:
+    connection-timeout: ${CONNECTION_TIMEOUT:5s}
+    max-http-form-post-size: 256KB
 
 management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env
+        # `env` retiré : l'endpoint révélait toute la configuration résolue, identifiants MQ
+        # et URL de base compris. `prometheus` remplace la collecte manuelle des métriques.
+        include: health,info,metrics,prometheus
   endpoint:
     health:
-      show-details: when-authorized
-  info:
-    env:
-      enabled: true
+      # `never` et non `when-authorized` : sans chaîne d'authentification, cette dernière
+      # valeur ne masque plus rien de façon lisible. Le détail énumère les composants et
+      # leur état, donc la topologie interne — il n'a rien à faire sur une API ouverte.
+      # Le profil `dev` le rouvre localement.
+      show-details: never
+      # Sondes distinctes : un socket ouvert ne signifie pas que l'application est prête.
+      # `readiness` conditionne l'envoi de trafic (healthcheck Compose, readinessProbe
+      # Kubernetes) ; `liveness` ne doit provoquer un redémarrage que si le contexte est
+      # irrécupérable — y mettre une dépendance externe ferait redémarrer en boucle une
+      # application saine dont la base est momentanément absente.
+      probes:
+        enabled: true
+      group:
+        liveness:
+          include: livenessState
+        # La base est ajoutée : sans elle aucun appel n'aboutit, l'instance ne doit pas
+        # recevoir de trafic. Le broker n'y est **pas** : une coupure MQ suspend
+        # l'ingestion mais l'API continue de servir les lectures et les rejeux.
+        readiness:
+          include: readinessState,db
+  # Par défaut les endpoints restent sur le port de l'API. MANAGEMENT_PORT les déplace sur
+  # un port dédié, ce qui permet de n'exposer que l'API à l'extérieur et de réserver
+  # l'exploitation (metrics, prometheus) au réseau interne.
+  server:
+    port: ${MANAGEMENT_PORT:}
 
 info:
   app:
     name: payment-messages
     version: 1.0.0
     java-version: 21
+
+logging:
+  # Identifiants de corrélation dans chaque ligne de log : requestId côté API
+  # (cf. CorrelationIdFilter), messageId côté ingestion MQ (cf. PaymentMessageListener).
+  pattern:
+    level: "%5p [${spring.application.name},req=%X{requestId:-},msg=%X{messageId:-}]"

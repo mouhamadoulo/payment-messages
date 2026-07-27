@@ -5,11 +5,11 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import lombok.Data;
 
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 @Data
 @Builder
-@Schema(description = "Message de paiement")
+@Schema(description = "Message de paiement, vue détaillée (payload inclus)")
 public class PaymentMessageDto {
 
     @Schema(example = "1")
@@ -37,13 +37,16 @@ public class PaymentMessageDto {
     @Schema(example = "{\"amount\":100}")
     private String payload;
 
+    @Schema(description = "Taille du payload brut en octets", example = "412")
+    private Integer payloadSize;
+
     @Schema(example = "0")
     private Integer retryCount;
 
     @Schema(example = "null")
     private String errorMessage;
 
-    private LocalDateTime receivedAt;
+    private OffsetDateTime receivedAt;
 
-    private LocalDateTime updatedAt;
+    private OffsetDateTime updatedAt;
 }

@@ -1,4 +1,4 @@
-import { Component, input, signal, effect } from '@angular/core';
+import { ChangeDetectionStrategy, Component, input, signal, effect } from '@angular/core';
 
 @Component({
   selector: 'app-kpi-card',
@@ -26,7 +26,8 @@ import { Component, input, signal, effect } from '@angular/core';
     .unit { font-size: .72rem; color: var(--muted-2); }
     .note { font-size: .7rem; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .hint { color: var(--faint); font-weight: 400; }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class KpiCardComponent {
   readonly label = input.required<string>();

@@ -1,14 +1,11 @@
-import { Component, OnInit, inject, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, OnInit, inject, computed } from '@angular/core';
 import { RouterLink } from '@angular/router';
 import { MessageService } from '../../services/message.service';
 import { PaymentMessage, PaymentMessageStatus } from '../../models/message.model';
 import { STATUS_ORDER, statusMeta } from '../../../../shared/config/status.config';
 import { AutoAnimateDirective } from '../../../../shared/ui/auto-animate.directive';
 import { KpiCardComponent } from '../../../../shared/ui/kpi-card/kpi-card.component';
-import { hourHistogram } from '../../../../shared/ui/histogram/hour-histogram';
 import { relativeTime } from '../../../../shared/util/payload.util';
-
-const SAMPLE_SIZE = 200;
 
 @Component({
   selector: 'app-dashboard',
@@ -51,20 +48,20 @@ const SAMPLE_SIZE = 200;
         <div class="card">
           <div class="card-head">
             <h3>Volume par heure de réception</h3>
-            <span class="meta">{{ sampleSize() }} derniers messages</span>
+            <span class="meta">24 h glissantes · {{ fmt(windowTotal()) }} messages</span>
           </div>
-          @if (sampleSize()) {
+          @if (windowTotal()) {
             <div class="bars">
-              @for (bar of volumeBars(); track bar.hour) {
+              @for (bar of volumeBars(); track bar.start) {
                 <div class="bar" [style.height.%]="bar.pct"
-                     [title]="bar.hour + 'h · ' + bar.count + ' message(s)'"></div>
+                     [title]="bar.label + ' · ' + bar.count + ' message(s)'"></div>
               }
             </div>
             <div class="axis">
-              <span>00h</span><span>06h</span><span>12h</span><span>18h</span><span>23h</span>
+              @for (tick of axisTicks(); track tick) { <span>{{ tick }}</span> }
             </div>
           } @else {
-            <p class="empty">Aucun message à représenter</p>
+            <p class="empty">Aucun message reçu sur les 24 dernières heures</p>
           }
         </div>
 
@@ -99,66 +96,87 @@ const SAMPLE_SIZE = 200;
         </div>
       </section>
 
-      <section class="grid split">
-        <div class="card">
-          <div class="card-head">
-            <h3>Répartition par type de message</h3>
-            <span class="meta">{{ sampleSize() }} derniers messages</span>
+      <!--
+        Blocs sous la ligne de flottaison : leur rendu (et l'animation de liste qu'ils
+        embarquent) attend qu'ils entrent dans la fenêtre. Le premier rendu ne paie plus que
+        les KPI et les deux graphiques du haut. Le substitut réserve la hauteur, sans quoi
+        l'arrivée du bloc décalerait le contenu déjà lu.
+      -->
+      @defer (on viewport) {
+        <section class="grid split">
+          <div class="card">
+            <div class="card-head">
+              <h3>Répartition par type de message</h3>
+              <span class="meta">{{ fmt(total()) }} messages</span>
+            </div>
+            @if (typeDist().length) {
+              <div class="rows" appAutoAnimate>
+                @for (t of typeDist(); track t.label) {
+                  <div class="row">
+                    <span class="row-label mono">{{ t.label }}</span>
+                    <div class="track"><div class="fill grad" [style.width.%]="t.pct"></div></div>
+                    <span class="row-count mono">{{ t.count }}</span>
+                  </div>
+                }
+              </div>
+            } @else {
+              <p class="empty">Aucun message</p>
+            }
           </div>
-          @if (typeDist().length) {
-            <div class="rows" appAutoAnimate>
-              @for (t of typeDist(); track t.label) {
-                <div class="row">
-                  <span class="row-label mono">{{ t.label }}</span>
-                  <div class="track"><div class="fill grad" [style.width.%]="t.pct"></div></div>
-                  <span class="row-count mono">{{ t.count }}</span>
+
+          <div class="card">
+            <div class="card-head">
+              <h3>Tentatives de rejeu</h3>
+              <span class="meta">retryCount</span>
+            </div>
+            <div class="tiles">
+              @for (b of retryBuckets(); track b.label) {
+                <div class="tile">
+                  <div class="tile-value mono">{{ b.count }}</div>
+                  <div class="tile-label">{{ b.label }}</div>
                 </div>
               }
             </div>
-          } @else {
-            <p class="empty">Aucun message</p>
-          }
-        </div>
+            <button class="btn" [disabled]="!count('FAILED') || svc.batchRetryRunning()" (click)="retryFailed()">
+              @if (svc.batchRetryRunning()) {
+                Rejeu en cours… {{ svc.batchRetryProcessed() }} message(s)
+              } @else {
+                Rejouer les {{ count('FAILED') }} message(s) en échec
+              }
+            </button>
+          </div>
+        </section>
+      } @placeholder {
+        <section class="grid split">
+          <div class="card sk-block"></div>
+          <div class="card sk-block"></div>
+        </section>
+      }
 
-        <div class="card">
+      @defer (on viewport) {
+        <section class="card">
           <div class="card-head">
-            <h3>Tentatives de rejeu</h3>
-            <span class="meta">retryCount</span>
+            <h3>Alertes récentes</h3>
+            <a routerLink="/messages" class="link">Voir tous les messages →</a>
           </div>
-          <div class="tiles">
-            @for (b of retryBuckets(); track b.label) {
-              <div class="tile">
-                <div class="tile-value mono">{{ b.count }}</div>
-                <div class="tile-label">{{ b.label }}</div>
-              </div>
-            }
-          </div>
-          <button class="btn" [disabled]="!count('FAILED')" (click)="retryFailed()">
-            Rejouer les {{ count('FAILED') }} message(s) en échec
-          </button>
-        </div>
-      </section>
-
-      <section class="card">
-        <div class="card-head">
-          <h3>Alertes récentes</h3>
-          <a routerLink="/messages" class="link">Voir tous les messages →</a>
-        </div>
-        @if (alerts().length) {
-          <div class="alerts" appAutoAnimate>
-            @for (a of alerts(); track a.id) {
-              <a class="alert" [routerLink]="['/messages', a.id]"
-                 [style.background]="a.bg" [style.border-color]="a.border">
-                <span class="level" [style.background]="a.color">{{ a.level }}</span>
-                <span class="alert-msg">{{ a.message }}</span>
-                <span class="alert-time mono">{{ a.time }}</span>
-              </a>
-            }
-          </div>
-        } @else {
-          <p class="empty">Aucun message en échec sur les {{ sampleSize() }} derniers reçus</p>
-        }
-      </section>
+          @if (alerts().length) {
+            <div class="alerts" appAutoAnimate>
+              @for (a of alerts(); track a.id) {
+                <a class="alert" [routerLink]="['/messages', a.id]"
+                   [style.background]="a.bg" [style.border-color]="a.border">
+                  <span class="level" [style.background]="a.color">{{ a.level }}</span>
+                  <span class="alert-msg">{{ a.message }}</span>
+                  <span class="alert-time mono">{{ a.time }}</span>
+                </a>
+              }
+            </div>
+          } @else {
+            <p class="empty">Aucun message en échec</p>
+          }
+        </section>
+      } @placeholder {
+        <section class="card sk-block"></section>
+      }
       }
     </div>
   `,
@@ -166,6 +184,8 @@ const SAMPLE_SIZE = 200;
     .page { display: flex; flex-direction: column; gap: 18px; }
     @media (prefers-reduced-motion: no-preference) { .page { animation: mq-up .3s ease; } }
     .sk-kpi { display: flex; flex-direction: column; gap: 11px; }
+    /* Réserve la hauteur d'un bloc différé : son arrivée ne doit pas décaler la page. */
+    .sk-block { min-height: 208px; }
 
     @media (prefers-reduced-motion: no-preference) {
       .bar { animation: grow-up .5s cubic-bezier(.22,.61,.36,1) both; transform-origin: bottom; }
@@ -254,15 +274,21 @@ const SAMPLE_SIZE = 200;
       .tiles { grid-template-columns: repeat(2, 1fr); }
       .row-label { width: 100px; }
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class DashboardPage implements OnInit {
   protected readonly svc = inject(MessageService);
 
+  /**
+   * Deux appels seulement : les compteurs par statut et les agrégats calculés en SQL. Le
+   * dashboard téléchargeait auparavant 200 messages complets (payloads inclus) pour
+   * recompter côté client une vingtaine de nombres — faux dès que la table dépassait 200
+   * lignes, puisque l'échantillon n'était pas représentatif.
+   */
   ngOnInit() {
     this.svc.loadStats();
-    this.svc.loadActivitySample(SAMPLE_SIZE);
-    this.svc.loadVolume24h();
+    this.svc.loadDashboard();
   }
 
   protected readonly skKpis = Array(5);
@@ -274,11 +300,11 @@ export class DashboardPage implements OnInit {
   protected count(s: string) { return this.statsMap()[s] ?? 0; }
   protected fmt(n: number) { return n.toLocaleString('fr-FR'); }
 
-  protected readonly sampleSize = computed(() => this.svc.activitySample().length);
+  protected readonly windowTotal = computed(() => this.svc.dashboard()?.windowTotal ?? 0);
 
   protected readonly volume24h = computed(() => {
-    const v = this.svc.volume24h();
-    return v == null ? '—' : this.fmt(v);
+    const stats = this.svc.dashboard();
+    return stats == null ? '—' : this.fmt(stats.windowTotal);
   });
 
   protected readonly errorCount = computed(() => this.count('FAILED') + this.count('DEAD_LETTER'));
@@ -288,10 +314,29 @@ export class DashboardPage implements OnInit {
     return ((this.errorCount() / t) * 100).toFixed(1).replace('.', ',');
   });
 
+  /**
+   * Tranches horaires telles que le serveur les a comptées. Chaque tranche porte son instant
+   * de début : l'heure affichée est celle du poste, sans avoir à supposer le fuseau du
+   * serveur.
+   */
   protected readonly volumeBars = computed(() => {
-    const buckets = hourHistogram(this.svc.activitySample());
-    const max = Math.max(1, ...buckets);
-    return buckets.map((count, hour) => ({ hour, count, pct: Math.max(3, (count / max) * 100) }));
+    const buckets = this.svc.dashboard()?.hourly ?? [];
+    const max = Math.max(1, ...buckets.map((b) => b.count));
+    return buckets.map((b) => ({
+      start: b.bucketStart,
+      label: hourLabel(b.bucketStart),
+      count: b.count,
+      pct: Math.max(3, (b.count / max) * 100),
+    }));
+  });
+
+  /** Graduations de l'axe : début, trois quarts intermédiaires, fin de la fenêtre. */
+  protected readonly axisTicks = computed(() => {
+    const bars = this.volumeBars();
+    if (!bars.length) return [];
+    return [0, 6, 12, 18, bars.length - 1]
+      .filter((i) => i < bars.length)
+      .map((i) => bars[i].label);
   });
 
   protected pct(n: number) { return n.toFixed(1).replace('.', ','); }
@@ -316,35 +361,27 @@ export class DashboardPage implements OnInit {
     return `conic-gradient(${stops})`;
   });
 
+  /** Répartition agrégée en base, donc sur toute la table et non sur un échantillon. */
   protected readonly typeDist = computed(() => {
-    const counts = new Map<string, number>();
-    for (const m of this.svc.activitySample()) {
-      const key = m.messageType || 'INCONNU';
-      counts.set(key, (counts.get(key) ?? 0) + 1);
-    }
-    const max = Math.max(1, ...counts.values());
-    return [...counts.entries()]
-      .sort((a, b) => b[1] - a[1])
-      .map(([label, count]) => ({ label, count, pct: (count / max) * 100 }));
+    const types = this.svc.dashboard()?.types ?? [];
+    const max = Math.max(1, ...types.map((t) => t.count));
+    return types.map((t) => ({ label: t.messageType, count: t.count, pct: (t.count / max) * 100 }));
   });
 
   protected readonly retryBuckets = computed(() => {
-    const sample = this.svc.activitySample();
-    const at = (n: number) => sample.filter((m) => (m.retryCount ?? 0) === n).length;
+    const retries = this.svc.dashboard()?.retries;
     return [
-      { label: 'aucune', count: at(0) },
-      { label: '1 essai', count: at(1) },
-      { label: '2 essais', count: at(2) },
-      { label: '3+', count: sample.filter((m) => (m.retryCount ?? 0) >= 3).length },
+      { label: 'aucune', count: retries?.none ?? 0 },
+      { label: '1 essai', count: retries?.one ?? 0 },
+      { label: '2 essais', count: retries?.two ?? 0 },
+      { label: '3+', count: retries?.threeOrMore ?? 0 },
     ];
   });
 
+  /** Les alertes viennent du serveur, trié par réception : plus de tri sur échantillon. */
   protected readonly alerts = computed(() => {
     const now = Date.now();
-    return this.svc.activitySample()
-      .filter((m) => m.status === PaymentMessageStatus.FAILED || m.status === PaymentMessageStatus.DEAD_LETTER)
-      .slice(0, 5)
-      .map((m) => this.toAlert(m, now));
+    return (this.svc.dashboard()?.recentFailures ?? []).map((m) => this.toAlert(m, now));
   });
 
   private toAlert(m: PaymentMessage, now: number) {
@@ -362,4 +399,10 @@ export class DashboardPage implements OnInit {
   }
 
   protected retryFailed() { this.svc.batchRetryFailed(); }
+}
+
+/** Heure locale d'une tranche, telle que l'affiche l'axe (« 14h »). */
+function hourLabel(iso: string): string {
+  const d = new Date(iso);
+  return Number.isNaN(d.getTime()) ? '—' : `${String(d.getHours()).padStart(2, '0')}h`;
 }

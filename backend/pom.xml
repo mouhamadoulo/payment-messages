@@ -28,6 +28,11 @@
 	</scm>
 	<properties>
 		<java.version>21</java.version>
+		<mq-jms-spring.version>4.1.0</mq-jms-spring.version>
+		<springdoc.version>2.8.9</springdoc.version>
+		<!-- Tests d'intégration IBM MQ : désactivés par défaut (image ~1 Go, démarrage du
+		     gestionnaire de files ~60 s). `./mvnw verify -Dmq.it=true` les active. -->
+		<mq.it>false</mq.it>
 	</properties>
 	<dependencies>
 		<dependency>
@@ -44,7 +49,26 @@
 		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-cache</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>com.github.ben-manes.caffeine</groupId>
+			<artifactId>caffeine</artifactId>
+		</dependency>
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
+		</dependency>
+		<!-- Exposition des métriques métier au format Prometheus (/actuator/prometheus). -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-registry-prometheus</artifactId>
+		</dependency>
+		<!-- Tracing : traceId/spanId propagés et injectés dans les logs. Un exportateur
+		     (micrometer-tracing-exporter-otlp) suffit ensuite pour émettre vers un collecteur. -->
+		<dependency>
+			<groupId>io.micrometer</groupId>
+			<artifactId>micrometer-tracing-bridge-otel</artifactId>
 		</dependency>
 
 		<dependency>
@@ -82,6 +106,19 @@
 			<artifactId>h2</artifactId>
 			<scope>runtime</scope>
 		</dependency>
+		<!-- Tests d'intégration sur services réels. H2 masque les écarts propres à PostgreSQL
+		     (types, index partiels, `timestamptz`) et aucun broker n'est simulable :
+		     redélivrance, backout et bascule DLQ ne se vérifient que sur un vrai IBM MQ. -->
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
+			<groupId>org.testcontainers</groupId>
+			<artifactId>testcontainers-postgresql</artifactId>
+			<scope>test</scope>
+		</dependency>
 
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
@@ -90,22 +127,14 @@
 		<dependency>
 			<groupId>com.ibm.mq</groupId>
 			<artifactId>mq-jms-spring-boot-starter</artifactId>
-			<version>4.1.0</version>
+			<version>${mq-jms-spring.version}</version>
 		</dependency>
 		<dependency>
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-			<version>2.8.9</version>
+			<version>${springdoc.version}</version>
 		</dependency>
 
-		<dependency>
-			<groupId>com.fasterxml.jackson.core</groupId>
-			<artifactId>jackson-databind</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>com.fasterxml.jackson.datatype</groupId>
-			<artifactId>jackson-datatype-jsr310</artifactId>
-		</dependency>
 	</dependencies>
 
 	<build>
@@ -121,6 +150,44 @@
 						</exclude>
 					</excludes>
 				</configuration>
+			</plugin>
+			<!-- Les tests n'exécutent pas `main()` : la redirection des journaux du client
+			     IBM MQ (cf. PaymentMessagesApplication) doit être répétée ici, sans quoi
+			     chaque exécution laisse des mqjms.log.* à la racine du module. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-surefire-plugin</artifactId>
+				<configuration>
+					<systemPropertyVariables>
+						<com.ibm.msg.client.commonservices.log.outputName>${project.build.directory}/mqjms.log</com.ibm.msg.client.commonservices.log.outputName>
+						<com.ibm.msg.client.commonservices.trace.outputName>${project.build.directory}/mqjms.trc</com.ibm.msg.client.commonservices.trace.outputName>
+						<com.ibm.msg.client.commonservices.dumplocation>${project.build.directory}</com.ibm.msg.client.commonservices.dumplocation>
+					</systemPropertyVariables>
+				</configuration>
+			</plugin>
+			<!-- Les tests d'intégration (`*IT`) demandent Docker : les isoler de Surefire
+			     garde `mvn test` rapide et hors dépendance externe. `mvn verify` exécute
+			     les deux ; sans Docker, les classes concernées se signalent « skipped »
+			     (@EnabledIfDockerAvailable) au lieu d'échouer. -->
+			<plugin>
+				<groupId>org.apache.maven.plugins</groupId>
+				<artifactId>maven-failsafe-plugin</artifactId>
+				<configuration>
+					<systemPropertyVariables>
+						<mq.it>${mq.it}</mq.it>
+						<com.ibm.msg.client.commonservices.log.outputName>${project.build.directory}/mqjms.log</com.ibm.msg.client.commonservices.log.outputName>
+						<com.ibm.msg.client.commonservices.trace.outputName>${project.build.directory}/mqjms.trc</com.ibm.msg.client.commonservices.trace.outputName>
+						<com.ibm.msg.client.commonservices.dumplocation>${project.build.directory}</com.ibm.msg.client.commonservices.dumplocation>
+					</systemPropertyVariables>
+				</configuration>
+				<executions>
+					<execution>
+						<goals>
+							<goal>integration-test</goal>
+							<goal>verify</goal>
+						</goals>
+					</execution>
+				</executions>
 			</plugin>
 			<plugin>
 				<groupId>org.apache.maven.plugins</groupId>

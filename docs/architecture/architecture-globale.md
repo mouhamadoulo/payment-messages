@@ -1,135 +1,69 @@
-# Architecture Overview
+# Architecture globale
 
-## 1. Introduction
-
-L'application **Payment Messages** est une application web permettant de récupérer, stocker et consulter des messages de paiement transitant via IBM MQ.
-
-Elle intervient dans la chaîne de traitement des paiements entre les applications Back Office et les systèmes de routage bancaire.
-
-Les objectifs principaux sont :
-
-- récupérer les messages depuis IBM MQ ;
-- assurer la persistance des messages ;
-- permettre leur consultation via une interface web ;
-- garantir performance, résilience et traçabilité.
+Application web de collecte, stockage et consultation des messages de paiement transitant par
+IBM MQ. Elle s'insère entre les applications Back Office et les systèmes de routage bancaire, avec
+quatre exigences : performance, résilience, traçabilité, supervision.
 
 ---
 
-## 2. Architecture globale
+## 1. Vue d'ensemble
 
-```mermaid
-flowchart LR
-    BO[Applications Back Office]
-    MQ[(IBM MQ Queue Manager)]
-    API[Spring Boot Backend]
-    DB[(PostgreSQL)]
-    FRONT[Angular Frontend]
+<p align="center">
+  <img src="../images/flux-architecture.svg" alt="Les applications Back Office déposent un message JSON sur PAYMENT.REQUEST.QUEUE ; le listener Spring Boot le consomme et le persiste en PostgreSQL ; l'IHM Angular le consulte via l'API REST" width="100%">
+</p>
 
-    BO -->|Dépose messages JSON| MQ
-    MQ -->|Consommation JMS 5-10 threads| API
-    API -->|Persistance| DB
-    FRONT -->|API REST /api/v1/messages| API
-    API -->|JSON| FRONT
-```
-
-### Flux principal
-
-1. Les applications **Back Office** déposent des messages JSON dans une file **IBM MQ**
-2. Le **Spring Boot Backend** consomme ces messages via un listener JMS (5-10 threads concurrents)
-3. Chaque message est désérialisé, validé, puis persisté dans **PostgreSQL**
-4. Les messages sont exposés via une **API REST** paginée
-5. Le **Frontend Angular** consomme l'API pour afficher et gérer les messages
-
----
-
-## 3. Cycle de vie des messages
-
-```mermaid
-stateDiagram-v2
-    direction LR
-    [*] --> RECEIVED: Message reçu de MQ
-    RECEIVED --> PROCESSED: Succès
-    RECEIVED --> FAILED: Erreur
-    FAILED --> RECEIVED: Nouvelle tentative (/retry)
-    FAILED --> DEAD_LETTER: Abandon après max-retries
-```
-
-Le cycle de vie complet (4 statuts) et les transitions détaillées sont documentés dans [flux.md](./flux.md).
-
----
-
-## 4. API REST
-
-Base path : `/api/v1/messages`
-
-| Méthode | Path | Action |
+| Étape | Composant | Point clé |
 |---|---|---|
-| `GET` | `/api/v1/messages` | Liste paginée avec filtres (statut, date) |
-| `GET` | `/api/v1/messages/stats` | Statistiques par statut |
-| `GET` | `/api/v1/messages/{id}` | Détail d'un message |
-| `DELETE` | `/api/v1/messages/{id}` | Suppression |
-| `POST` | `/api/v1/messages/batch/retry-failed` | Relance des messages en échec |
-| `POST` | `/api/v1/messages/{id}/retry` | Relance individuelle |
-| `PUT` | `/api/v1/messages/{id}/status` | Mise à jour du statut |
-
-Swagger UI : `http://localhost:8080/swagger-ui.html`
-
-Documentation complète : [docs/api/api-documentation.md](../api/api-documentation.md)
+| Dépôt | Back Office | message JSON sur `PAYMENT.REQUEST.QUEUE` |
+| Consommation | `PaymentMessageListener` | 5-10 consommateurs, session transactée |
+| Persistance | `PaymentMessageService` | idempotente sur `messageId` |
+| Exposition | `/api/v1/messages` | pagination, filtres serveur, agrégats SQL |
+| Consultation | IHM Angular | signals, requêtes annulables, rafraîchissement 30 s |
 
 ---
 
-## 5. Stack technique
+## 2. Cycle de vie des messages
 
-### Backend
+<p align="center">
+  <img src="../images/cycle-de-vie-message.svg" alt="RECEIVED est l'état initial posé par le listener ; PUT /status mène à PROCESSED ou FAILED ; POST /retry rejoue un FAILED tant que retryCount reste sous max-retries, au-delà le message part en DEAD_LETTER" width="100%">
+</p>
 
-| Technologie | Version |
-|---|---|
-| Java | 21 |
-| Spring Boot | 4.1.0 |
-| Spring Data JPA | - |
-| Spring JMS | - |
-| IBM MQ Client | 9.4.2.0 |
-| PostgreSQL | 18 |
-| H2 (tests) | - |
-| Lombok | - |
-| Jackson | - |
-| SpringDoc OpenAPI | 2.8.9 |
-| Spring Boot Actuator | - |
-
-### Frontend
-
-| Technologie | Version |
-|---|---|
-| Angular | 22 |
-| TypeScript | 6 |
-| RxJS | 7.8 |
-| Vitest | 4 |
-
-### Infrastructure
-
-| Technologie | Version |
-|---|---|
-| Docker | - |
-| Docker Compose | - |
+Le graphe est **appliqué par le serveur** (`PaymentMessageStatus.canTransitionTo`) : toute autre
+transition répond `422`. Détail des déclencheurs : [flux.md](./flux.md#2-cycle-de-vie-dun-message).
 
 ---
 
-## 6. Déploiement
+## 3. API REST
 
-```mermaid
-flowchart LR
-    COMPOSE[Docker Compose] --> PG[PostgreSQL:5432]
-    COMPOSE --> MQ[IBM MQ:1414]
-    COMPOSE --> PGADMIN[pgAdmin:5050]
-    BACKEND[Backend:8080] --> PG
-    BACKEND --> MQ
-```
+Tous les endpoints sont ouverts — **l'authentification et les autorisations sont hors périmètre du
+sujet**. Erreurs au format `application/problem+json` (RFC 9457) avec un `correlationId` repris de
+`X-Request-Id`.
 
-Documentation détaillée :
+- Contrat complet : [api-documentation.md](../api/api-documentation.md)
+- Swagger UI : `http://localhost:8080/swagger-ui.html`
 
-- [Architecture backend](./architecture-backend.md)
-- [Architecture frontend](./architecture-frontend.md)
-- [Flux de données](./flux.md)
-- [Modèle de données](../database/database-model.md)
-- [Configuration IBM MQ](../ibm-mq/ibm-mq-configuration.md)
-- [API REST](../api/api-documentation.md)
+---
+
+## 4. Déploiement
+
+<p align="center">
+  <img src="../images/deploiement-compose.svg" alt="docker compose démarre postgres, ibm-mq et pgadmin, construit les images backend et frontend, puis enchaîne les démarrages sur les sondes de santé" width="100%">
+</p>
+
+`docker compose up -d` construit les **deux** images applicatives depuis leurs `Dockerfile`. Le port
+8080 écoute bien avant que le schéma, le pool JDBC et le conteneur d'écoute JMS soient prêts : c'est
+`/actuator/health/readiness` qui fait foi, et `--wait` s'y adosse.
+
+---
+
+## 5. Voir aussi
+
+| Sujet | Fichier |
+|---|---|
+| Flux de données détaillés | [flux.md](./flux.md) |
+| Architecture backend | [architecture-backend.md](./architecture-backend.md) |
+| Architecture frontend | [architecture-frontend.md](./architecture-frontend.md) |
+| Modèle de données | [../database/database-model.md](../database/database-model.md) |
+| Configuration IBM MQ | [../ibm-mq/ibm-mq-configuration.md](../ibm-mq/ibm-mq-configuration.md) |
+| API REST | [../api/api-documentation.md](../api/api-documentation.md) |
+| Stack et versions | [../../README.md](../../README.md) |

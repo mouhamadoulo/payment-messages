@@ -1,0 +1,23 @@
+{
+  "messageId": "JDD-DD-0003",
+  "messageType": "SEPA_DIRECT_DEBIT",
+  "reference": "PRLV-2026-0726-0003",
+  "payment": {
+    "transactionId": "TX-20260726-000003",
+    "amount": 89.90,
+    "currency": "EUR",
+    "executionDate": "2026-08-05"
+  },
+  "debtor": {
+    "accountNumber": "FR7610107001010012345678902",
+    "name": "Marie Durand",
+    "bankCode": "BREDFRPP"
+  },
+  "creditor": {
+    "accountNumber": "FR7630004000031234567890143",
+    "name": "Orange SA",
+    "bankCode": "BNPAFRPP"
+  },
+  "status": "RECEIVED",
+  "createdAt": "2026-07-26T09:15:30"
+}

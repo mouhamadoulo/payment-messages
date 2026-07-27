@@ -25,6 +25,15 @@ export const routes: Routes = [
       import('./features/messages/pages/message-list/message-list.page').then((m) => m.MessageListPage)
   },
   {
+    path: 'simulation',
+    data: {
+      title: "Simulation d'envoi",
+      subtitle: 'Déposer des messages de test sur une file IBM MQ'
+    },
+    loadComponent: () =>
+      import('./features/simulation/pages/simulation/simulation.page').then((m) => m.SimulationPage)
+  },
+  {
     path: 'messages/:id',
     data: {
       title: 'Détail du message',

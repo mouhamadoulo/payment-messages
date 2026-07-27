@@ -1,4 +1,4 @@
-import { Component, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, signal } from '@angular/core';
 import { RouterOutlet } from '@angular/router';
 import { HeaderComponent } from '../header/header.component';
 import { SidebarComponent } from '../sidebar/sidebar.component';
@@ -33,7 +33,8 @@ import { SidebarComponent } from '../sidebar/sidebar.component';
       .menu-open .scrim { display: block; position: fixed; inset: 0; z-index: 20;
                           background: rgba(20, 32, 45, .32); }
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class MainLayoutComponent {
   protected readonly menuOpen = signal(false);

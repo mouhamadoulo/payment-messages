@@ -45,7 +45,8 @@ services:
       - "9443:9443"
     volumes:
       - mq_data:/mnt/mqm
-      # Cree PAYMENT.REQUEST.QUEUE et PAYMENT.DLQ.QUEUE au demarrage du QM
+      # Cree PAYMENT.REQUEST.QUEUE, PAYMENT.DLQ.QUEUE et PAYMENT.BACKOUT.QUEUE
+      # a la creation du QM (rejouer le script a la main apres modification)
       - ./infra/mq/payment-queues.mqsc:/etc/mqm/payment-queues.mqsc:ro
     healthcheck:
       test: ["CMD-SHELL", "chkmqhealthy"]
@@ -64,10 +65,12 @@ services:
     environment:
       SPRING_PROFILES_ACTIVE: docker
       SERVER_PORT: 8080
-      DB_URL: jdbc:postgresql://postgres:5432/payment_messages
+      DB_URL: jdbc:postgresql://postgres:5432/payment_messages?reWriteBatchedInserts=true
       DB_USER: payment
       DB_PASSWORD: payment
-      JPA_DDL_AUTO: update
+      JPA_DDL_AUTO: update     # schéma dérivé des entités par Hibernate
+      DB_POOL_MAX_SIZE: 20
+      DB_POOL_MIN_IDLE: 5
       MQ_QMGR: QM1
       MQ_CHANNEL: DEV.APP.SVRCONN
       MQ_CONN_NAME: ibm-mq(1414)
@@ -76,6 +79,11 @@ services:
       MQ_QUEUE: PAYMENT.REQUEST.QUEUE
       MQ_DLQ_QUEUE: PAYMENT.DLQ.QUEUE
       MQ_MAX_RETRIES: 3
+      MQ_MIN_CONCURRENCY: 5
+      MQ_MAX_CONCURRENCY: 10
+      # Le front est servi par nginx qui relaie /api/ vers ce service : même origine.
+      # La liste ne couvre que les appels directs au port 8080.
+      CORS_ALLOWED_ORIGINS: http://localhost:4200
     ports:
       - "8080:8080"
     depends_on:
@@ -84,7 +92,10 @@ services:
       ibm-mq:
         condition: service_healthy
     healthcheck:
-      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/8080'"]
+      # Sonde de disponibilité applicative, et non simple ouverture de socket : le port
+      # 8080 écoute bien avant que le schéma, le pool JDBC et le conteneur d'écoute JMS
+      # soient prêts. `--fail` fait échouer curl sur un statut HTTP >= 400 (DOWN = 503).
+      test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080/actuator/health/readiness || exit 1"]
       interval: 15s
       timeout: 5s
       retries: 10

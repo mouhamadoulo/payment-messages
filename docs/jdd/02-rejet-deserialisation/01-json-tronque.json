@@ -1,0 +1,7 @@
+{
+  "messageId": "JDD-KO-DESER-0001",
+  "messageType": "SEPA_CREDIT_TRANSFER",
+  "reference": "VIR-2026-0726-9001",
+  "payment": {
+    "transactionId": "TX-20260726-009001",
+    "amount": 100.00,

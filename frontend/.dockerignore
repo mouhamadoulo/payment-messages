@@ -1,11 +1,30 @@
+# Sorties de build et dependances : reconstruites dans l'image, et un
+# node_modules d'hote (binaires natifs Windows/macOS) casserait l'etape de build.
 node_modules
 dist
 .angular
+out-tsc
+coverage
+
+# Metadonnees et outillage local
 .git
+.gitignore
 .vscode
 .idea
-coverage
+.editorconfig
+.prettierrc
 *.log
+npm-debug.log*
+.DS_Store
+
+# Specifique au dev-server, sans effet dans l'image (nginx.conf prend le relais)
+proxy.conf.json
+
+# Tests : exclus du build (`tsconfig.app.json` les ecarte deja)
+tsconfig.spec.json
+src/**/*.spec.ts
+
+# Non copies dans l'image
 Dockerfile
 .dockerignore
 README.md

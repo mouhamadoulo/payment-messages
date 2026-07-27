@@ -1,0 +1,117 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 470" width="1200" height="470" role="img" aria-label="Deploiement Docker Compose : postgres et ibm-mq sains, puis backend pret, puis frontend nginx">
+<title>D&#233;ploiement Docker Compose &#8212; d&#233;marrage ordonn&#233; par les sondes</title>
+<desc>docker compose up -d demarre postgres, ibm-mq et pgadmin, construit les deux images applicatives, puis attend que les sondes soient vertes : le backend attend postgres et ibm-mq sains et declare sa propre disponibilite sur /actuator/health/readiness, le frontend attend le backend et relaie /api vers lui.</desc>
+<defs>
+<linearGradient id="bg3" x1="0" y1="0" x2="0.4" y2="1"><stop offset="0" stop-color="#fbfcfe"/><stop offset="1" stop-color="#eaeff5"/></linearGradient>
+<pattern id="g3" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#4a6b8c" stroke-opacity="0.07" stroke-width="1"/></pattern>
+<filter id="soft3" x="-60%" y="-60%" width="220%" height="220%"><feGaussianBlur stdDeviation="4" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+</defs>
+<rect width="1200" height="470" fill="url(#bg3)"/><rect width="1200" height="470" fill="url(#g3)"/>
+
+<text x="34" y="42" font-family="system-ui, sans-serif" font-size="18" font-weight="600" fill="#1a2733">D&#233;ploiement Docker Compose</text>
+<text x="34" y="63" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10.5" font-weight="600" fill="#2496ED" letter-spacing="1.4">D&#201;MARRAGE ORDONN&#201; PAR LES SONDES, PAS PAR UN SIMPLE depends_on</text>
+
+<g fill="none" stroke="#94a3b8" stroke-opacity="0.45" stroke-width="1.4" stroke-dasharray="4 6">
+<path d="M214 208C244 208 244 152 272 152"/>
+<path d="M214 220H272"/>
+<path d="M214 232C244 232 244 300 272 300"/>
+</g>
+<g fill="#94a3b8">
+<polygon points="276,152 266,147 266,157"/><polygon points="276,220 266,215 266,225"/><polygon points="276,300 266,295 266,305"/>
+</g>
+
+<g>
+<rect x="34" y="184" width="180" height="72" rx="12" fill="#ffffff" stroke="#2496ED" stroke-opacity="0.5"/>
+<text x="124" y="212" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#1a2733">docker compose</text>
+<text x="124" y="230" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#2496ED">up -d --wait</text>
+<text x="124" y="248" text-anchor="middle" font-family="system-ui, sans-serif" font-size="9.5" fill="#6b7d8f">5 services, 2 images build&#233;es</text>
+</g>
+
+<g>
+<rect x="276" y="118" width="212" height="68" rx="12" fill="#ffffff" stroke="#2b6cb0" stroke-opacity="0.45"/>
+<circle cx="296" cy="140" r="4.5" fill="#27794C"><animate attributeName="fill" dur="9s" repeatCount="indefinite" calcMode="discrete" keyTimes="0;0.22;1" values="#b0721c;#27794C;#27794C"/><animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite"/></circle>
+<text x="310" y="144" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="600" fill="#1a2733">postgres:18</text>
+<text x="476" y="144" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#2b6cb0">:5432</text>
+<text x="296" y="164" font-family="system-ui, sans-serif" font-size="9.5" fill="#6b7d8f">sch&#233;ma g&#233;n&#233;r&#233; par Hibernate</text>
+<text x="296" y="179" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#3f7a4f">healthcheck: healthy<animate attributeName="opacity" dur="9s" repeatCount="indefinite" calcMode="discrete" keyTimes="0;0.22;1" values="0;1;1"/></text>
+</g>
+
+<g>
+<rect x="276" y="198" width="212" height="68" rx="12" fill="#ffffff" stroke="#0e7fb8" stroke-opacity="0.45"/>
+<circle cx="296" cy="220" r="4.5" fill="#27794C"><animate attributeName="fill" dur="9s" repeatCount="indefinite" calcMode="discrete" keyTimes="0;0.26;1" values="#b0721c;#27794C;#27794C"/><animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite"/></circle>
+<text x="310" y="224" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="600" fill="#1a2733">ibm-mq</text>
+<text x="476" y="224" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#0e7fb8">:1414 &#183; :9443</text>
+<text x="296" y="244" font-family="system-ui, sans-serif" font-size="9.5" fill="#6b7d8f">files cr&#233;&#233;es par le script MQSC</text>
+<text x="296" y="259" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#3f7a4f">healthcheck: healthy<animate attributeName="opacity" dur="9s" repeatCount="indefinite" calcMode="discrete" keyTimes="0;0.26;1" values="0;1;1"/></text>
+</g>
+
+<g>
+<rect x="276" y="278" width="212" height="52" rx="12" fill="#ffffff" stroke="#94a3b8" stroke-opacity="0.45"/>
+<circle cx="296" cy="300" r="4.5" fill="#586170"/>
+<text x="310" y="304" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="600" fill="#1a2733">pgadmin</text>
+<text x="476" y="304" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#586170">:5050</text>
+<text x="296" y="321" font-family="system-ui, sans-serif" font-size="9.5" fill="#6b7d8f">hors chemin applicatif</text>
+</g>
+
+<g>
+<rect x="552" y="150" width="248" height="128" rx="18" fill="none" stroke="#4e9a26" stroke-width="2" filter="url(#soft3)" opacity="0"><animate attributeName="opacity" dur="9s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.30;0.36;0.48;1" values="0;0;0.9;0;0"/></rect>
+<rect x="560" y="158" width="232" height="112" rx="12" fill="#ffffff" stroke="#4e9a26" stroke-opacity="0.45"/>
+<circle cx="580" cy="182" r="4.5" fill="#27794C"><animate attributeName="fill" dur="9s" repeatCount="indefinite" calcMode="discrete" keyTimes="0;0.36;1" values="#b0721c;#27794C;#27794C"/><animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite"/></circle>
+<text x="594" y="186" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="600" fill="#1a2733">backend</text>
+<text x="780" y="186" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#4e9a26">:8080</text>
+<text x="580" y="206" font-family="system-ui, sans-serif" font-size="9.5" fill="#6b7d8f">build ./backend &#183; profil docker</text>
+<text x="580" y="226" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#5c6f80">attend postgres + ibm-mq <tspan font-weight="600" fill="#3f7a4f">sains</tspan></text>
+<text x="580" y="243" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">sonde /actuator/health/readiness</text>
+<text x="580" y="260" font-family="system-ui, sans-serif" font-size="9" fill="#8496a7">le port &#233;coute avant la base et le listener</text>
+</g>
+
+<g>
+<rect x="864" y="150" width="256" height="128" rx="18" fill="none" stroke="#c62b40" stroke-width="2" filter="url(#soft3)" opacity="0"><animate attributeName="opacity" dur="9s" repeatCount="indefinite" calcMode="linear" keyTimes="0;0.48;0.54;0.66;1" values="0;0;0.9;0;0"/></rect>
+<rect x="872" y="158" width="240" height="112" rx="12" fill="#ffffff" stroke="#c62b40" stroke-opacity="0.45"/>
+<circle cx="892" cy="182" r="4.5" fill="#27794C"><animate attributeName="fill" dur="9s" repeatCount="indefinite" calcMode="discrete" keyTimes="0;0.54;1" values="#b0721c;#27794C;#27794C"/><animate attributeName="opacity" values="1;0.35;1" dur="1.4s" repeatCount="indefinite"/></circle>
+<text x="906" y="186" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11.5" font-weight="600" fill="#1a2733">frontend</text>
+<text x="1100" y="186" text-anchor="end" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="10" fill="#c62b40">:4200</text>
+<text x="892" y="206" font-family="system-ui, sans-serif" font-size="9.5" fill="#6b7d8f">build ./frontend &#183; nginx</text>
+<text x="892" y="226" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#5c6f80">attend <tspan font-weight="600" fill="#3f7a4f">backend</tspan></text>
+<text x="892" y="243" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">relais /api/ &#8594; backend:8080</text>
+<text x="892" y="260" font-family="system-ui, sans-serif" font-size="9" fill="#8496a7">une seule origine pour le navigateur</text>
+</g>
+
+<g>
+<rect x="872" y="392" width="240" height="52" rx="12" fill="#ffffff" stroke="#94a3b8" stroke-opacity="0.45" stroke-dasharray="4 4"/>
+<text x="992" y="414" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="11" font-weight="600" fill="#41505f">navigateur</text>
+<text x="992" y="432" text-anchor="middle" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#6b7d8f">http://localhost:4200</text>
+</g>
+
+<g fill="none" stroke-width="1.8">
+<path d="M560 200C528 200 520 152 492 152" stroke="#2b6cb0" stroke-opacity="0.75" stroke-dasharray="5 9" stroke-linecap="round"><animate attributeName="stroke-dashoffset" from="0" to="28" dur="1.4s" repeatCount="indefinite"/></path>
+<path d="M560 240C528 240 520 232 492 232" stroke="#0e7fb8" stroke-opacity="0.75" stroke-dasharray="5 9" stroke-linecap="round"><animate attributeName="stroke-dashoffset" from="0" to="28" dur="1.4s" repeatCount="indefinite"/></path>
+<path d="M872 214H800" stroke="#c62b40" stroke-opacity="0.7" stroke-dasharray="5 9" stroke-linecap="round"><animate attributeName="stroke-dashoffset" from="0" to="28" dur="1.4s" repeatCount="indefinite"/></path>
+<path d="M992 392V274" stroke="#94a3b8" stroke-opacity="0.6" stroke-dasharray="5 9" stroke-linecap="round"><animate attributeName="stroke-dashoffset" from="0" to="28" dur="1.4s" repeatCount="indefinite"/></path>
+</g>
+<g>
+<polygon points="488,152 498,147 498,157" fill="#2b6cb0"/>
+<polygon points="488,232 498,227 498,237" fill="#0e7fb8"/>
+<polygon points="796,214 806,209 806,219" fill="#c62b40"/>
+<polygon points="992,270 987,280 997,280" fill="#94a3b8"/>
+</g>
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#5c6f80">
+<text x="512" y="176">JDBC</text>
+<text x="512" y="252">JMS</text>
+<text x="810" y="206">proxy /api/</text>
+<text x="1000" y="338">HTTP</text>
+</g>
+
+<g>
+<rect x="34" y="330" width="320" height="92" rx="12" fill="#ffffff" fill-opacity="0.72" stroke="#dbe3ec"/>
+<text x="52" y="352" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" font-weight="600" fill="#41505f" letter-spacing="0.8">SONDES</text>
+<circle cx="56" cy="370" r="4.5" fill="#b0721c"/><text x="70" y="374" font-family="system-ui, sans-serif" font-size="10" fill="#6b7d8f">conteneur d&#233;marr&#233;, sonde encore rouge</text>
+<circle cx="56" cy="390" r="4.5" fill="#27794C"/><text x="70" y="394" font-family="system-ui, sans-serif" font-size="10" fill="#6b7d8f">sonde verte : les d&#233;pendants peuvent partir</text>
+<text x="52" y="412" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9" fill="#5c6f80">--wait bloque jusqu&#8217;&#224; ce que tout soit vert</text>
+</g>
+
+<g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="9.5" fill="#5c6f80">
+<text x="34" y="452">docker compose up -d postgres ibm-mq &#8594; infrastructure seule, pour d&#233;velopper en local</text>
+<text x="1166" y="452" text-anchor="end">Boucle 9 s</text>
+</g>
+</svg>

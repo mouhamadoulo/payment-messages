@@ -1,4 +1,4 @@
-import { Component, output, inject, computed } from '@angular/core';
+import { ChangeDetectionStrategy, Component, output, inject, computed } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 import { DecimalPipe } from '@angular/common';
 import { MessageService } from '../../features/messages/services/message.service';
@@ -25,10 +25,9 @@ import { relativeTime } from '../../shared/util/payload.util';
       <a class="item" routerLink="/messages" routerLinkActive="active" (click)="navigate.emit()">
         <app-icon name="messages" /> Messages
       </a>
-      <span class="item disabled" title="Disponible dans une prochaine version">
+      <a class="item" routerLink="/simulation" routerLinkActive="active" (click)="navigate.emit()">
         <app-icon name="play" /> Simulation d'envoi
-        <span class="soon">bientôt</span>
-      </span>
+      </a>
     </nav>
 
     <div class="foot">
@@ -67,11 +66,6 @@ import { relativeTime } from '../../shared/util/payload.util';
             color: var(--muted); text-decoration: none; }
     .item:hover { background: var(--row-hover); color: var(--text-2); }
     .item.active { background: var(--primary-soft); color: var(--primary-dark); border-left-color: var(--primary); }
-    .item.disabled { color: var(--faint); cursor: not-allowed; }
-    .item.disabled:hover { background: transparent; color: var(--faint); }
-    .soon { margin-left: auto; font-size: .62rem; font-weight: 600; text-transform: uppercase;
-            letter-spacing: .04em; color: var(--muted-2); background: var(--border-soft);
-            padding: 2px 7px; border-radius: 6px; }
 
     .foot { margin-top: auto; display: flex; flex-direction: column; gap: 10px;
             padding-top: 16px; border-top: 1px solid var(--border-soft); }
@@ -91,7 +85,8 @@ import { relativeTime } from '../../shared/util/payload.util';
     @media (prefers-reduced-motion: no-preference) {
       .dot { animation: mq-pulse 1.8s infinite; }
     }
-  `]
+  `],
+  changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class SidebarComponent {
   readonly navigate = output<void>();
@@ -100,8 +95,13 @@ export class SidebarComponent {
   constructor() {
     this.svc.loadConfig();
   }
+  /**
+   * Réception la plus récente : le serveur la calcule sur toute la table
+   * (`lastReceivedAt` des agrégats). Repli sur la liste chargée là où les agrégats ne le
+   * sont pas — l'échantillon de 200 messages qui servait à cela n'existe plus.
+   */
   protected readonly lastReceived = computed(() => {
-    const latest = this.svc.activitySample()[0] ?? this.svc.messages()[0];
-    return latest ? relativeTime(latest.receivedAt) : '—';
+    const latest = this.svc.dashboard()?.lastReceivedAt ?? this.svc.messages()[0]?.receivedAt;
+    return latest ? relativeTime(latest) : '—';
   });
 }

@@ -28,6 +28,10 @@ jobs:
           distribution: temurin
           cache: maven
           
+      # `verify` = Surefire (H2) puis Failsafe (Testcontainers). Le runner GitHub fournit
+      # un démon Docker, les *IT s'exécutent donc réellement ici — c'est le seul endroit où
+      # le schéma et les requêtes sont confrontés à PostgreSQL. Le tir IBM MQ reste hors CI
+      # (image ~1 Go) : `./mvnw verify -Dmq.it=true` en local.
       - name: Build & Test with Maven
         run: ./mvnw verify --no-transfer-progress
 
@@ -47,6 +51,10 @@ jobs:
           cache-dependency-path: ./frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      # Vitest via le builder `@angular/build:unit-test`. `--no-watch` est indispensable :
+      # sans lui, le builder reste en observation et le job n'aboutit jamais.
+      - name: Test
+        run: npm run test -- --no-watch
       - name: Build
         run: npm run build
 

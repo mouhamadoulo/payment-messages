@@ -3,18 +3,23 @@ spring:
     name: payment-messages
 
   datasource:
-    url: jdbc:postgresql://localhost:5432/payment_messages
+    url: jdbc:postgresql://localhost:5432/payment_messages?reWriteBatchedInserts=true
     username: payment
     password: payment
     driver-class-name: org.postgresql.Driver
 
+  # Le schéma est dérivé des entités par Hibernate ; `update` le crée et le complète.
   jpa:
     hibernate:
       ddl-auto: update
 
   jms:
     listener:
-      acknowledge-mode: auto
+      session:
+        transacted: true          # explicite : rollback = redélivrance
+      min-concurrency: 5
+      max-concurrency: 10
+      receive-timeout: 5s
 
 ibm:
   mq:
@@ -29,6 +34,17 @@ ibm:
     max-retries: 3
 
 
+app:
+  cors:
+    allowed-origins: http://localhost:4200
+
+  # Simulation d'envoi (onglet « Simulation d'envoi » de l'IHM) : dépose de vrais messages
+  # sur la file d'entrée. Laissée active en développement, à couper ailleurs.
+  simulation:
+    enabled: true
+    max-count: 1000
+    max-rate: 200
+
 server:
   port: 8080
 
@@ -36,13 +52,16 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,env
+        include: health,info,metrics,prometheus
   endpoint:
     health:
-      show-details: when-authorized
-  info:
-    env:
-      enabled: true
+      # Développement uniquement : le détail des composants aide au diagnostic local.
+      # Le fichier commun le referme (`never`) — ne pas reporter cette valeur en production.
+      show-details: always
+  # Décommenter pour isoler les endpoints d'exploitation sur un port dédié, à ne pas
+  # exposer à l'extérieur.
+  # server:
+  #   port: 8081
 
 info:
   app:

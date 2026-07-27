@@ -1,0 +1,23 @@
+{
+  "messageId": "JDD-LIM-0004",
+  "messageType": "SEPA_CREDIT_TRANSFER",
+  "reference": "VIR-2026-0726-5004-ÉÀÜ",
+  "payment": {
+    "transactionId": "TX-20260726-000001",
+    "amount": 15750.00,
+    "currency": "EUR",
+    "executionDate": "2026-07-27"
+  },
+  "debtor": {
+    "accountNumber": "FR7630006000011234567890189",
+    "name": "Sté Générale d'Électricité — Île-de-France",
+    "bankCode": "SOGEFRPP"
+  },
+  "creditor": {
+    "accountNumber": "JP0001234567890123456789",
+    "name": "株式会社トヨタ 💴",
+    "bankCode": "TOYOJPJT"
+  },
+  "status": "RECEIVED",
+  "createdAt": "2026-07-26T09:15:30"
+}

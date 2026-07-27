@@ -1,0 +1,6 @@
+{
+  messageId: JDD-KO-DESER-0002,
+  messageType: SEPA_CREDIT_TRANSFER,
+  amount: 100,00,
+  currency "EUR"
+}
