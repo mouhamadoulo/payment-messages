@@ -8,10 +8,10 @@ spring:
     password: payment
     driver-class-name: org.postgresql.Driver
 
-  # Le schéma vient des migrations Flyway (db/migration) ; Hibernate ne fait que le vérifier.
+  # Le schéma est dérivé des entités par Hibernate ; `update` le crée et le complète.
   jpa:
     hibernate:
-      ddl-auto: validate
+      ddl-auto: update
 
   jms:
     listener:

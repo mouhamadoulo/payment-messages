@@ -68,7 +68,7 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/payment_messages?reWriteBatchedInserts=true
       DB_USER: payment
       DB_PASSWORD: payment
-      JPA_DDL_AUTO: validate   # schéma géré par Flyway (backend/src/main/resources/db/migration)
+      JPA_DDL_AUTO: update     # schéma dérivé des entités par Hibernate
       DB_POOL_MAX_SIZE: 20
       DB_POOL_MIN_IDLE: 5
       MQ_QMGR: QM1
@@ -93,7 +93,7 @@ services:
         condition: service_healthy
     healthcheck:
       # Sonde de disponibilité applicative, et non simple ouverture de socket : le port
-      # 8080 écoute bien avant que Flyway, le pool JDBC et le conteneur d'écoute JMS
+      # 8080 écoute bien avant que le schéma, le pool JDBC et le conteneur d'écoute JMS
       # soient prêts. `--fail` fait échouer curl sur un statut HTTP >= 400 (DOWN = 503).
       test: ["CMD-SHELL", "curl --fail --silent http://127.0.0.1:8080/actuator/health/readiness || exit 1"]
       interval: 15s

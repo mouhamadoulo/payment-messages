@@ -1,22 +1,19 @@
 # Profil des tests d'intégration (`*IT`), activé en complément de `test` : celui-ci fournit
 # déjà la configuration MQ, la sécurité et le port serveur, seule la base change.
 #
-# Différence de fond avec `test` : la base est un vrai PostgreSQL (Testcontainers), les
-# migrations Flyway sont rejouées et Hibernate est en `validate`. C'est le seul contexte où
-# une migration cassée, un type de colonne divergent ou une syntaxe non portable est
-# détectée — H2 ne sait pas exécuter ces migrations et travaille sur un schéma généré.
+# Différence de fond avec `test` : la base est un vrai PostgreSQL (Testcontainers). C'est le
+# seul contexte où un type de colonne divergent (`timestamptz`), un index partiel ou une
+# syntaxe non portable est confronté au moteur réel — H2 les accepte ou les traduit.
 
 spring:
-  # url / username / password proviennent du conteneur (@ServiceConnection) et priment sur
-  # les valeurs du profil `test` : le bean JdbcConnectionDetails l'emporte sur les propriétés.
+  # url / username / password proviennent du conteneur (@DynamicPropertySource) et priment
+  # sur les valeurs du profil `test`.
   datasource:
     driver-class-name: org.postgresql.Driver
 
-  flyway:
-    enabled: true
-
   jpa:
     hibernate:
-      # `validate` : le test échoue si une entité et le schéma migré divergent.
-      ddl-auto: validate
+      # Le conteneur PostgreSQL est un singleton partagé par toutes les classes `*IT` :
+      # `update` complète le schéma sans le détruire entre deux contextes.
+      ddl-auto: update
     database-platform: org.hibernate.dialect.PostgreSQLDialect

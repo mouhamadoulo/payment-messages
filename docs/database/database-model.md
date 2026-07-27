@@ -35,7 +35,7 @@ erDiagram
 | `status` | `VARCHAR(255)` | `NOT NULL` | Statut du cycle de vie |
 | `payload` | `TEXT` | nullable | Contenu JSON brut du message MQ ; **jamais renvoyé par les listes**, seulement par `GET /messages/{id}` |
 | `payload_size` | `INTEGER` | nullable | Taille du payload en octets, calculée à l'ingestion : évite de transporter le payload pour afficher sa taille |
-| `retry_count` | `INTEGER` | `NOT NULL DEFAULT 0` | Nombre de tentatives de reprise |
+| `retry_count` | `INTEGER` | `NOT NULL` | Nombre de tentatives de reprise ; la valeur initiale `0` vient de l'entité (`@Builder.Default`), pas d'un `DEFAULT` SQL |
 | `error_message` | `TEXT` | nullable | Message d'erreur détaillé |
 | `received_at` | `TIMESTAMPTZ` | nullable | Date et heure de réception depuis MQ (avec fuseau) |
 | `updated_at` | `TIMESTAMPTZ` | nullable | Date et heure de dernière mise à jour |
@@ -87,28 +87,33 @@ Stockée en tant que `VARCHAR` en base via `@Enumerated(STRING)`.
 
 ## 4. Gestion du schéma
 
-Le schéma est piloté par **Flyway** (`backend/src/main/resources/db/migration`), pas par
-Hibernate :
+Le schéma est **dérivé des entités par Hibernate**. Il n'y a pas d'outil de migration : la
+seule définition de la table et de ses index est `entity/PaymentMessage` (annotations
+`@Table(indexes = …)`, `@Column`).
 
 ```yaml
 spring:
-  flyway:
-    enabled: true
-    baseline-on-migrate: true   # bases antérieures à Flyway, créées par ddl-auto: update
-    baseline-version: 0         # laisse V1 (idempotente) s'appliquer malgré tout
   jpa:
     hibernate:
-      ddl-auto: validate        # Hibernate vérifie l'accord entité / schéma, sans le modifier
+      ddl-auto: ${JPA_DDL_AUTO:update}   # crée ce qui manque au démarrage
 ```
 
-| Migration | Contenu |
+| Valeur de `JPA_DDL_AUTO` | Effet |
 |---|---|
-| `V1__baseline_schema.sql` | table `payment_messages` et ses index, en `CREATE … IF NOT EXISTS` |
-| `V2__timestamptz_version_payload_size.sql` | colonnes `version` / `payload_size`, passage des horodatages en `TIMESTAMPTZ`, backfill de `payload_size`, renommage de l'index de référence |
-| `V3__message_type_index.sql` | index sur `message_type` (filtre par type côté serveur, liste des types distincts) |
+| `update` (défaut) | crée les tables, colonnes et index absents ; ne supprime ni ne modifie l'existant |
+| `validate` | vérifie l'accord entité / schéma et refuse de démarrer en cas d'écart — à utiliser là où le schéma est posé en amont |
+| `create-drop` | recrée le schéma à chaque contexte ; c'est ce qu'utilisent les tests unitaires sur H2 |
 
-Les tests tournent sur H2 avec `spring.flyway.enabled: false` et un schéma généré par
-Hibernate : les migrations sont écrites pour PostgreSQL.
+Deux conséquences à connaître :
+
+- **`update` ne fait qu'ajouter.** Renommer une colonne, changer un type ou retirer une
+  contrainte n'est pas propagé : sur une base existante, l'opération est à passer à la main.
+- **Les index déclarés dans l'entité sont les index réels.** Retirer une annotation
+  `@Index` sur une base déjà créée ne supprime pas l'index côté PostgreSQL.
+
+Les tests unitaires tournent sur H2 (`create-drop`), les `*IT` sur un vrai PostgreSQL
+(Testcontainers, `update`) : c'est là que les types effectivement générés — `timestamptz`
+en particulier — sont confrontés au moteur cible.
 
 ### Rétention
 

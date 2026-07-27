@@ -28,7 +28,7 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class PaymentMessageEvent {
 
-    /** Longueur des colonnes texte correspondantes (cf. {@code db/migration/V1}). */
+    /** Longueur des colonnes texte correspondantes (cf. {@code entity/PaymentMessage}). */
     public static final int MAX_LENGTH = 255;
 
     @NotBlank(message = "messageId obligatoire")

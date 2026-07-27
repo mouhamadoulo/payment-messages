@@ -223,7 +223,7 @@ MQSC. Points à connaître :
 
 | Élément | Valeur | Remarque |
 |---|---|---|
-| Image | `icr.io/ibm-messaging/mq:latest` | **non figée** — le client Java, lui, est épinglé par `mq-jms-spring-boot-starter` (9.4.2.0). Épingler l'image sur un environnement partagé |
+| Image | `icr.io/ibm-messaging/mq:latest` | **non figée** — le client Java, lui, est épinglé par `mq-jms-spring-boot-starter` 4.1.0 (`com.ibm.mq.jakarta.client` 10.0.0.0). Épingler l'image sur un environnement partagé |
 | `MQ_QMGR_NAME` | `QM1` | doit correspondre à `MQ_QMGR` côté backend |
 | `MQ_APP_PASSWORD` / `MQ_ADMIN_PASSWORD` | cf. `docker-compose.yaml` | mots de passe de développement de l'image IBM |
 | Port `1414` | connexion applicative JMS | consommé par le backend (`MQ_CONN_NAME`) |

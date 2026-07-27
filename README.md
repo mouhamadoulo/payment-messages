@@ -4,7 +4,7 @@
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-4.1.0-brightgreen?logo=springboot)
 ![Angular](https://img.shields.io/badge/Angular-22-red?logo=angular)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-blue?logo=postgresql)
-![IBM MQ](https://img.shields.io/badge/IBM%20MQ-9.4.2-blue?logo=ibm)
+![IBM MQ](https://img.shields.io/badge/IBM%20MQ-10.0.0-blue?logo=ibm)
 ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker)
 ![Maven](https://img.shields.io/badge/Maven-build-C71A36?logo=apachemaven)
 
@@ -58,7 +58,7 @@ cd frontend && npm install && ng serve  # relais /api vers :8080 → :4200
 | **Ingestion** | `@JmsListener`, 5-10 consommateurs, session transactée, idempotence sur `messageId` |
 | **Contrat d'entrée** | validé en profondeur (cascade `@Valid` sur `payment`), tailles bornées sur celles des colonnes |
 | **Erreurs** | définitives → ligne `FAILED` + payload brut ; transitoires → rollback et redélivrance bornée |
-| **Persistance** | PostgreSQL, schéma piloté par Flyway (`ddl-auto: validate`) |
+| **Persistance** | PostgreSQL, schéma dérivé des entités par Hibernate (`ddl-auto: update`) |
 | **API** | pagination page / curseur, 4 filtres serveur, agrégats SQL cachés, `ETag`, RFC 9457 |
 | **Reprise** | rejeu unitaire ou par lots bornés (202 + `taskId`), DLQ applicative publiée après commit |
 | **IHM** | tableau de bord, liste filtrable et triable, détail, changement de statut, simulation d'envoi |
@@ -97,7 +97,7 @@ cd frontend && npm install && ng serve  # relais /api vers :8080 → :4200
 | `RETENTION_ENABLED` (`false`) + `RETENTION_*` | purge planifiée des messages traités |
 | `SIMULATION_ENABLED` (`true`) / `_MAX_COUNT` (`1000`) / `_MAX_RATE` (`200`) | simulation d'envoi et ses bornes |
 | `CORS_ALLOWED_ORIGINS` · `MAX_PAGE_SIZE` (`200`) · `REQUEST_TIMEOUT` (`15s`) · `CONNECTION_TIMEOUT` (`5s`) | garde-fous navigateur et HTTP |
-| `JPA_DDL_AUTO` (`validate`) · `FLYWAY_ENABLED` (`true`) · `MANAGEMENT_PORT` (vide) | schéma et port de l'actuator |
+| `JPA_DDL_AUTO` (`update`) · `MANAGEMENT_PORT` (vide) | schéma et port de l'actuator |
 
 
 ---
@@ -165,9 +165,9 @@ Métriques métier :
 ```
 payment-messages
 ├── backend/     # Spring Boot 4.1, Java 21 — config, controller, dto, entity, exception,
-│                #   mapper, mq, repository, service, web ; db/migration (Flyway)
+│                #   mapper, mq, repository, service, web
 ├── frontend/    # Angular 22 standalone, zoneless — core, features, layout, shared
-├── infra/       # mq/ (MQSC), load/ (injecteur JMS, k6)
+├── infra/       # mq/ (script MQSC monté à la création du gestionnaire de files)
 ├── docs/        # architecture, api, database, ibm-mq, user-guide, postman, jdd, images
 └── docker-compose.yaml · .github/workflows/ci.yml
 ```
@@ -176,7 +176,7 @@ payment-messages
 |---|---|---|
 | Java 21 · Spring Boot 4.1.0 | Angular 22 (standalone, zoneless) | Docker · Docker Compose |
 | Spring Data JPA · Spring JMS | Angular Material + CDK 22 | PostgreSQL 18 · IBM MQ (image `latest`) |
-| IBM MQ Client 9.4.2.0 · Flyway · Caffeine | TypeScript 6 · RxJS 7.8 | nginx 1.27-alpine · node 22-alpine |
+| IBM MQ Client 10.0.0.0 · Caffeine | TypeScript 6 · RxJS 7.8 | nginx 1.27-alpine · node 22-alpine |
 | Actuator · Micrometer · SpringDoc 2.8.9 | Vitest 4 | H2 · Testcontainers (tests) |
 
 

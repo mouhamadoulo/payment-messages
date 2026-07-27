@@ -55,21 +55,6 @@
 			<groupId>com.github.ben-manes.caffeine</groupId>
 			<artifactId>caffeine</artifactId>
 		</dependency>
-		<!-- Boot 4 a sorti l'auto-configuration Flyway de spring-boot-autoconfigure : sans ce
-		     module, `spring.flyway.*` ne se lie à rien et les migrations ne sont jamais jouées
-		     (Hibernate en `validate` échoue alors sur « missing table payment_messages »). -->
-		<dependency>
-			<groupId>org.springframework.boot</groupId>
-			<artifactId>spring-boot-flyway</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-core</artifactId>
-		</dependency>
-		<dependency>
-			<groupId>org.flywaydb</groupId>
-			<artifactId>flyway-database-postgresql</artifactId>
-		</dependency>
 		<dependency>
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-webmvc</artifactId>
@@ -121,8 +106,8 @@
 			<artifactId>h2</artifactId>
 			<scope>runtime</scope>
 		</dependency>
-		<!-- Tests d'intégration sur services réels. H2 ne sait pas rejouer les migrations
-		     PostgreSQL (types, DO $$, index partiels) et aucun broker n'est simulable :
+		<!-- Tests d'intégration sur services réels. H2 masque les écarts propres à PostgreSQL
+		     (types, index partiels, `timestamptz`) et aucun broker n'est simulable :
 		     redélivrance, backout et bascule DLQ ne se vérifient que sur un vrai IBM MQ. -->
 		<dependency>
 			<groupId>org.testcontainers</groupId>

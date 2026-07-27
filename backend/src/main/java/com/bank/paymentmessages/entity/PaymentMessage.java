@@ -8,9 +8,9 @@ import java.time.OffsetDateTime;
 /**
  * Ligne de la table {@code payment_messages}.
  * <p>
- * Le schéma physique est géré par Flyway ({@code db/migration}) : les {@link Index}
- * déclarés ici ne servent qu'à la génération de schéma des tests (H2, {@code create-drop})
- * et doivent rester alignés sur les migrations.
+ * Le schéma physique est dérivé de cette classe par Hibernate ({@code ddl-auto}) : les
+ * {@link Index} déclarés ici sont la <b>seule</b> définition des index de la table, en
+ * développement comme dans les tests. Retirer une annotation retire l'index.
  * <p>
  * Les horodatages sont des {@link OffsetDateTime} (colonnes {@code timestamptz}) : un
  * flux de paiement traverse plusieurs fuseaux et les conteneurs n'ont pas toujours le

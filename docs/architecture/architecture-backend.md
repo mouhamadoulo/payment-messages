@@ -15,7 +15,7 @@ Le backend est une application **Spring Boot 4.1.0** en **Java 21**. Il assure :
 
 Versions dans le [README](../../README.md) (section « Stack »). Trois choix qui pèsent sur le code :
 
-- **Flyway** possède le schéma (`db/migration`), Hibernate est en `ddl-auto: validate` — cf. §6.4 ;
+- **Hibernate** possède le schéma, dérivé des entités (`ddl-auto`, `update` par défaut) — cf. §6.4 ;
 - **Caffeine** porte le cache court des agrégats de lecture (`STATS_CACHE_TTL`) ;
 - **Micrometer + Prometheus** exposent les métriques métier, alimentées par les compteurs du flux.
 
@@ -327,8 +327,8 @@ collecteur.
 | Profil | Fichier | Usage |
 |---|---|---|
 | `dev` | `application-dev.yaml` (git-ignoré, gabarit `-dev.example.yaml`) | Actif par défaut. Valeurs concrètes de développement ; rouvre le détail des sondes de santé |
-| `test` | `application-test.yaml` | Campagne Surefire (`*Test`) : H2, Flyway coupé, conteneur JMS et job DLQ à l'arrêt |
-| `integration` | `application-integration.yaml` | Campagne Failsafe (`*IT`) : PostgreSQL réel via Testcontainers, Flyway actif, `ddl-auto: validate` |
+| `test` | `application-test.yaml` | Campagne Surefire (`*Test`) : H2 en `create-drop`, conteneur JMS et job DLQ à l'arrêt |
+| `integration` | `application-integration.yaml` | Campagne Failsafe (`*IT`) : PostgreSQL réel via Testcontainers, `ddl-auto: update` |
 | `mq-it` | `application-mq-it.yaml` | Seul profil où le listener JMS démarre réellement (`PaymentMessageMqIT`, `-Dmq.it=true`) |
 | `docker` | *(aucun)* | Activé par `docker-compose.yaml`. Ne porte volontairement **aucune** propriété : toute la configuration vient du bloc `environment:` du service, via les placeholders d'`application.yaml` |
 
@@ -355,17 +355,18 @@ il énumère les composants et leur état, donc la topologie interne. Le statut 
 aux sondes de l'orchestrateur. Seul le profil `dev` rouvre le détail, pour le diagnostic
 local.
 
-### 6.4 Flyway : deux dépendances, pas une
+### 6.4 Schéma : Hibernate, sans outil de migration
 
-Spring Boot 4 a sorti l'auto-configuration Flyway de `spring-boot-autoconfigure` pour en faire
-un module à part. `flyway-core` (+ `flyway-database-postgresql`) fournit le moteur, mais tant
-que **`org.springframework.boot:spring-boot-flyway`** n'est pas au classpath, les clés
-`spring.flyway.*` ne se lient à rien : aucune migration n'est jouée, et Hibernate en
-`ddl-auto: validate` refuse de démarrer sur « missing table payment_messages ».
+Le projet n'embarque pas de gestionnaire de migrations. Le schéma est **dérivé des entités**
+par Hibernate (`ddl-auto`, `update` par défaut, cf.
+[database-model.md §4](../database/database-model.md#4-gestion-du-schéma)) : `entity/PaymentMessage`
+est la seule définition de la table, de ses colonnes et de ses index.
 
-La panne est traître parce qu'elle ne se voit pas en local, où la base porte déjà le schéma :
-elle sort en CI, sur le PostgreSQL vide que démarrent les `*IT`. Les trois dépendances sont
-donc à conserver ensemble dans `backend/pom.xml`.
+Ce que cela implique en pratique : `update` **ajoute** ce qui manque mais ne renomme, ne
+retype et ne supprime rien. Un changement de forme sur une base déjà peuplée (renommage de
+colonne, changement de type, retrait d'index) est à passer à la main. Sur un environnement où
+le schéma est posé en amont, `JPA_DDL_AUTO=validate` fait échouer le démarrage au lieu de
+laisser l'application modifier la base.
 
 ---
 
@@ -396,13 +397,10 @@ décide : `*Test` → Surefire, `*IT` → Failsafe.
 
 ### 7.2 Tests d'intégration (Failsafe, `*IT`, Testcontainers)
 
-Ces tests portent sur ce que H2 ne peut pas reproduire : les migrations sont écrites pour
-PostgreSQL et ne s'exécutent pas sous H2, où le schéma est généré par Hibernate. Une
-migration cassée passait donc `verify` sans être vue.
+Ces tests portent sur ce que H2 ne peut pas reproduire : types réels (`timestamptz`),
+sémantique des contraintes et comportement concurrent du moteur cible. H2 les accepte ou les
+traduit, et masque donc les écarts.
 
-- **SchemaMigrationIT** (PostgreSQL) : migrations Flyway réellement appliquées, accord
-  entité / schéma (`ddl-auto: validate`), colonnes en `timestamptz`, index de requête,
-  unicité de `message_id`
 - **PaymentMessagePersistenceIT** (PostgreSQL) : insertion concurrente arbitrée par la
   contrainte d'unicité, aller-retour d'horodatage entre fuseaux, parcours complet du
   curseur, publication DLQ après commit et reprise après refus, rétention, écriture d'un
@@ -422,10 +420,4 @@ cd backend
 
 Sans démon Docker, les `*IT` sont *skipped* et le build reste vert (`@RequiresDocker`).
 Le pipeline CI (GitHub Actions) exécute `mvnw verify` à chaque push et PR, sur un runner
-qui dispose de Docker : c'est là que les migrations sont confrontées à PostgreSQL.
-
-### 7.4 Tirs de charge
-
-`infra/load/` : `MqInjector.java` (débit d'ingestion en messages/s) et `k6-api.js` (p95 des
-listes, du curseur et de `/stats`, avec seuils bloquants). Détails dans
-`infra/load/README.md`.
+qui dispose de Docker : c'est là que le schéma et les requêtes sont confrontés à PostgreSQL.

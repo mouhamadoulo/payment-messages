@@ -22,6 +22,3 @@ logs/
 *.iml
 .DS_Store
 Thumbs.db
-
-# Résultats des tirs de charge (cf. infra/load)
-infra/load/results/

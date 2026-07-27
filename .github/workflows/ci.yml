@@ -30,7 +30,7 @@ jobs:
           
       # `verify` = Surefire (H2) puis Failsafe (Testcontainers). Le runner GitHub fournit
       # un démon Docker, les *IT s'exécutent donc réellement ici — c'est le seul endroit où
-      # les migrations Flyway sont confrontées à PostgreSQL. Le tir IBM MQ reste hors CI
+      # le schéma et les requêtes sont confrontés à PostgreSQL. Le tir IBM MQ reste hors CI
       # (image ~1 Go) : `./mvnw verify -Dmq.it=true` en local.
       - name: Build & Test with Maven
         run: ./mvnw verify --no-transfer-progress

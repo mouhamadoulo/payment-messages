@@ -9,11 +9,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 /**
  * Socle des tests d'intégration exécutés sur un vrai PostgreSQL.
  * <p>
- * Les tests unitaires tournent sur H2 avec un schéma généré par Hibernate et
- * {@code spring.flyway.enabled: false} : ils ne peuvent donc <b>pas</b> détecter une
- * migration cassée, un type de colonne divergent ni une syntaxe propre à PostgreSQL
- * ({@code TIMESTAMPTZ}, blocs {@code DO $$}, {@code ON CONFLICT}). Ce socle rejoue les
- * migrations sur le moteur réel, Hibernate en {@code validate}.
+ * Les tests unitaires tournent sur H2 : ils ne peuvent donc <b>pas</b> détecter un type de
+ * colonne divergent ni une syntaxe propre à PostgreSQL ({@code TIMESTAMPTZ},
+ * {@code ON CONFLICT}), que H2 accepte, traduit ou refuse selon les cas. Ce socle confronte
+ * le schéma généré et les requêtes au moteur réel.
  * <p>
  * Le conteneur est démarré une fois pour toute la campagne (motif <i>singleton</i>) plutôt
  * que par classe : les valeurs injectées étant identiques d'une classe à l'autre, le
@@ -36,7 +35,7 @@ public abstract class AbstractPostgresIT {
 
     /**
      * Même version majeure que l'environnement d'exécution ({@code docker-compose.yaml}) :
-     * tester les migrations sur une autre version reviendrait à ne pas les tester.
+     * tester le schéma sur une autre version reviendrait à ne pas le tester.
      */
     protected static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer("postgres:18")
             .withDatabaseName("payment_messages")

@@ -4,10 +4,8 @@ spring:
     username: sa
     password:
     driver-class-name: org.h2.Driver
-  # Les migrations sont écrites pour PostgreSQL ; les tests tournent sur H2 avec un schéma
-  # généré par Hibernate à partir des entités (indexes inclus).
-  flyway:
-    enabled: false
+  # Schéma généré par Hibernate à partir des entités (indexes inclus), recréé à chaque
+  # contexte : les tests unitaires ne partagent aucun état de base.
   jpa:
     hibernate:
       ddl-auto: create-drop

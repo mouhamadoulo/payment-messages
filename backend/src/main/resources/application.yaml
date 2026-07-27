@@ -18,19 +18,12 @@ spring:
       connection-timeout: 3000
       leak-detection-threshold: 20000
 
-  # Le schéma est piloté par les migrations (db/migration), pas par Hibernate :
-  # migrations relisibles, rejouables et réversibles, sans DDL implicite au démarrage.
-  flyway:
-    enabled: ${FLYWAY_ENABLED:true}
-    # Les bases antérieures à Flyway ont été créées par `ddl-auto: update` ; baseline 0
-    # laisse V1 (idempotente) s'appliquer malgré tout, V2 complète ce qui manque.
-    baseline-on-migrate: true
-    baseline-version: 0
-
   jpa:
     hibernate:
-      # `validate` : Hibernate contrôle l'accord entité / schéma, il ne le modifie plus.
-      ddl-auto: ${JPA_DDL_AUTO:validate}
+      # Le schéma est dérivé des entités par Hibernate : `update` crée ce qui manque
+      # (tables, colonnes, index déclarés sur @Table) au démarrage. Sur un environnement
+      # où le schéma est posé en amont, passer JPA_DDL_AUTO à `validate`.
+      ddl-auto: ${JPA_DDL_AUTO:update}
     properties:
       hibernate:
         order_inserts: true

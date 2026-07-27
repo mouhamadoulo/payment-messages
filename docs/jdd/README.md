@@ -172,8 +172,7 @@ curl -X POST http://localhost:8080/api/v1/simulation/sends \
 - **Postman** — collection `docs/postman/`, dossier « 03 · Simulation » : coller le contenu
   d'un fichier dans le champ `payload` et passer `uniqueIds` à `false`.
 - **IHM** — onglet *Simulation d'envoi*, décocher « identifiants uniques ».
-- **Directement sur la file** — `infra/load/MqInjector.java`, ou `amqsput` dans le conteneur MQ,
-  sans passer par l'API.
+- **Directement sur la file** — `amqsput` dans le conteneur MQ, sans passer par l'API.
 
 ## Observer le résultat
 

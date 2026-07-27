@@ -51,7 +51,7 @@ sujet**. Erreurs au format `application/problem+json` (RFC 9457) avec un `correl
 </p>
 
 `docker compose up -d` construit les **deux** images applicatives depuis leurs `Dockerfile`. Le port
-8080 écoute bien avant que Flyway, le pool JDBC et le conteneur d'écoute JMS soient prêts : c'est
+8080 écoute bien avant que le schéma, le pool JDBC et le conteneur d'écoute JMS soient prêts : c'est
 `/actuator/health/readiness` qui fait foi, et `--wait` s'y adosse.
 
 ---
